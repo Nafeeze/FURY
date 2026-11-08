@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FURY</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0e1f;--text:#eef1ff;--muted:#a9b1d6;--line:rgba(255,255,255,.15);--violet:#8b6bff;--cyan:#4fd1ff;--teal:#5eead4;--pink:#ff6b8a;--amber:#ffc24d;--grey:#9aa4c7;
+--sans:'Sora',system-ui,-apple-system,'Segoe UI',sans-serif;--mono:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace}
+*{box-sizing:border-box}html,body{height:100%;margin:0}body{background:var(--bg);color:var(--text);font-family:var(--sans);overflow:hidden}
+button,textarea{font-family:inherit}.hidden{display:none!important}
+.bg{position:fixed;inset:0;overflow:hidden;z-index:0}.orb{position:absolute;border-radius:50%;filter:blur(120px)}
+.o1{left:-140px;top:-160px;width:560px;height:560px;background:#6d4aff;opacity:.5}.o2{right:-120px;top:60px;width:520px;height:520px;background:#12b8d6;opacity:.34}.o3{left:35%;bottom:-240px;width:600px;height:480px;background:#ff4f9a;opacity:.28}
+.glass{background:rgba(255,255,255,.07);border:1px solid var(--line);backdrop-filter:blur(26px) saturate(150%);box-shadow:0 8px 32px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.12)}
+.shell{position:relative;z-index:1;height:100vh;display:flex;gap:20px;padding:20px}
+.lbl{font:600 11px var(--sans);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}.m{font:500 12px var(--mono);color:var(--muted)}
+.sidebar{width:300px;flex:none;border-radius:28px;padding:26px 18px 18px;display:flex;flex-direction:column;gap:18px;min-height:0}
+.brand{display:flex;align-items:center;gap:12px;padding:0 6px}.logo{width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,#8b6bff,#22d3ee);display:flex;align-items:center;justify-content:center}
+.word{font:800 26px var(--sans);letter-spacing:.18em}
+.tabs{display:flex;gap:6px}.tab{flex:1;height:38px;border-radius:12px;border:1px solid transparent;background:rgba(255,255,255,.06);color:var(--muted);font:600 13px var(--sans);cursor:pointer}
+.tab.active{background:rgba(255,255,255,.14);color:#fff;border-color:rgba(255,255,255,.2)}
+.new-btn{height:50px;border-radius:16px;border:0;background:linear-gradient(135deg,#8b6bff,#4fd1ff);color:#0a0e1f;font:700 15px var(--sans);cursor:pointer}
+.list{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:6px}
+.item{padding:11px 14px;border-radius:14px;background:rgba(255,255,255,.05);font-size:13px}.item .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;background:var(--grey)}.dot.resolved{background:var(--teal)}.dot.escalated{background:var(--amber)}.dot.running{background:var(--violet)}.dot.error{background:var(--pink)}
+.agents{font-size:12px;color:var(--muted);line-height:1.7}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;gap:16px}
+.header{border-radius:24px;padding:16px 24px;display:flex;align-items:center;gap:14px}.header h1{margin:2px 0 0;font:700 24px var(--sans)}.hleft{flex:1}
+.pill{display:inline-flex;align-items:center;height:34px;padding:0 14px;border-radius:999px;font:600 12px var(--sans);letter-spacing:.06em;text-transform:uppercase;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2)}
+.pill.warn{background:rgba(255,194,77,.16);border-color:rgba(255,194,77,.55)}.pill.ok{background:rgba(94,234,212,.15);border-color:rgba(94,234,212,.5)}
+.btn{height:34px;padding:0 16px;border-radius:999px;font:600 13px var(--sans);color:var(--text);background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);cursor:pointer}
+.chat{flex:1;min-height:0;border-radius:28px;overflow-y:auto;padding:26px 30px}.inner{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.bub{max-width:80%;padding:14px 18px;border-radius:20px;line-height:1.55;font-size:15px;white-space:pre-wrap}
+.user{align-self:flex-end;background:linear-gradient(135deg,rgba(139,107,255,.55),rgba(79,209,255,.4));border:1px solid rgba(255,255,255,.2)}
+.bot{align-self:flex-start;background:rgba(255,255,255,.08);border:1px solid var(--line)}
+.steps{margin:8px 0 0;padding:0;list-style:none;font-size:13px;color:var(--muted)}.steps li{padding:3px 0}.steps li:before{content:"\2713  ";color:var(--teal)}.steps li.failed:before{content:"\2717  ";color:var(--pink)}
+.wait{margin-top:8px;color:var(--amber);font-size:13px}.tk{font-family:var(--mono);color:var(--cyan)}
+.composer{border-radius:24px;padding:14px 16px;display:flex;gap:12px;align-items:flex-end}
+textarea{flex:1;resize:none;border:0;outline:0;background:transparent;color:var(--text);font-size:15px;max-height:140px;padding:8px}
+.send{height:44px;padding:0 24px;border-radius:14px;border:0;background:linear-gradient(135deg,#8b6bff,#4fd1ff);color:#0a0e1f;font:700 14px var(--sans);cursor:pointer}
+.panel{border-radius:24px;padding:20px 24px;margin-bottom:16px}table{width:100%;border-collapse:collapse;font-size:13px}th{text-align:left;color:var(--muted);font:600 11px var(--sans);letter-spacing:.12em;text-transform:uppercase;padding:8px}
+td{padding:9px 8px;border-top:1px solid rgba(255,255,255,.08)}tr.row{cursor:pointer}tr.row:hover{background:rgba(255,255,255,.06)}.notes{font:12px var(--mono);color:var(--muted);white-space:pre-wrap;padding:10px 12px;background:rgba(0,0,0,.25);border-radius:12px;margin:4px 0}
+.dash{flex:1;min-height:0;overflow-y:auto}.faults{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+</style></head><body>
+<div class="bg"><i class="orb o1"></i><i class="orb o2"></i><i class="orb o3"></i></div>
+<div class="shell">
+ <aside class="sidebar glass">
+  <div class="brand"><div class="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0a0e1f" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></div><div class="word">FURY</div></div>
+  <div class="tabs"><button id="tChat" class="tab active">Chat</button><button id="tInc" class="tab">Incidents</button></div>
+  <button id="newBtn" class="new-btn">+ New chat</button>
+  <div class="lbl">Recent runs</div><div id="runs" class="list"></div>
+  <div><div class="lbl">Agents</div><div id="agents" class="agents"></div></div>
+ </aside>
+ <main class="main" id="chatView">
+  <header class="header glass"><div class="hleft"><div class="m" id="mode">SRE triage</div><h1>Report a server problem</h1></div><span id="appr" class="pill warn hidden">Waiting for SRE Admin on Slack</span></header>
+  <section class="chat glass" id="chat"><div class="inner" id="inner"><div class="bub bot">Hi, I am FURY. Tell me what is wrong with the server, for example "the website is down" or "disk is full on F:". I will check it, open a ServiceNow ticket, and fix it if a runbook covers it. Any change on the server needs the SRE Admin to approve on Slack first.</div></div></section>
+  <form id="form" class="composer glass"><textarea id="box" rows="1" maxlength="1000" placeholder="Describe the problem..."></textarea><button class="send" type="submit">Send</button></form>
+ </main>
+ <main class="main hidden" id="incView">
+  <header class="header glass"><div class="hleft"><div class="m">ServiceNow</div><h1>Incidents</h1></div><span id="poll" class="pill">alarm poller: ok</span></header>
+  <div class="dash">
+   <div class="panel glass"><div class="lbl">Incidents opened by FURY (click a row for work notes)</div><table><thead><tr><th>Number</th><th>Short description</th><th>State</th><th>Group</th></tr></thead><tbody id="rows"></tbody></table><div id="noteBox"></div></div>
+   <div class="panel glass hidden" id="demoPanel"><div class="lbl">Demo mode: break the fake server</div><div class="faults" id="faults"></div></div>
+  </div>
+ </main>
+</div>
+<script>
+const $=id=>document.getElementById(id);let cur=null;const ST={'1':'New','2':'In Progress','3':'On Hold','6':'Resolved','7':'Closed'};
+const api=(u,o)=>fetch(u,o).then(r=>r.json());
+function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e}
+function tab(w){$('chatView').classList.toggle('hidden',w!=='chat');$('incView').classList.toggle('hidden',w!=='inc');$('tChat').classList.toggle('active',w==='chat');$('tInc').classList.toggle('active',w==='inc');if(w==='inc')loadInc()}
+$('tChat').onclick=()=>tab('chat');$('tInc').onclick=()=>tab('inc');
+$('newBtn').onclick=()=>{$('inner').querySelectorAll('.user,.bot:not(:first-child)').forEach(n=>n.remove());tab('chat');$('box').focus()};
+$('box').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('form').requestSubmit()}});
+$('form').onsubmit=async e=>{e.preventDefault();const t=$('box').value.trim();if(!t)return;$('box').value='';
+ $('inner').append(el('div','bub user',t));const b=el('div','bub bot','Looking into it...');$('inner').append(b);$('chat').scrollTop=1e9;
+ const r=await api('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:t})});track(r.run,b)};
+function paint(b,v){b.textContent='';b.append(el('div',null,v.message||(v.state==='queued'?'Queued, another incident is being handled...':'Working on it...')));
+ if(v.ticket){const d=el('div',null,'Ticket: ');d.append(el('span','tk',v.ticket));b.append(d)}
+ const ul=el('ul','steps');v.steps.forEach(s=>ul.append(el('li',s.state==='failed'?'failed':'',s.text)));b.append(ul);
+ if(v.waiting_approval&&v.state==='running')b.append(el('div','wait','Waiting for the SRE Admin to approve on Slack...'))}
+async function track(id,b){for(;;){const v=await api('/api/run/'+id);paint(b,v);$('chat').scrollTop=1e9;if(v.state==='done'||v.state==='error')break;await new Promise(r=>setTimeout(r,1200))}loadRuns()}
+async function loadRuns(){const rs=await api('/api/runs');const box=$('runs');box.textContent='';
+ if(!rs.length)box.append(el('div','m','Nothing yet'));rs.forEach(r=>{const d=el('div','item');const t=el('div','t');t.append(el('span','dot '+(r.outcome||r.state)),document.createTextNode(r.label));d.append(t,el('div','m',r.at+' · '+r.source+(r.ticket?' · '+r.ticket:'')+' · '+(r.outcome||r.state)));box.append(d)})}
+async function loadInc(){const r=await api('/api/incidents');const tb=$('rows');tb.textContent='';
+ if(!r.ok){const tr=el('tr');const td=el('td',null,'Could not read ServiceNow: '+r.error);td.colSpan=4;tr.append(td);tb.append(tr)}
+ r.incidents.forEach(i=>{const tr=el('tr','row');[i.number,i.short_description,ST[i.state]||i.state,i.assignment_group||'-'].forEach(x=>tr.append(el('td',null,x)));tr.onclick=()=>notes(i.number);tb.append(tr)})}
+async function notes(n){const r=await api('/api/incident/'+n);const nb=$('noteBox');nb.textContent='';nb.append(el('div','lbl',n+' work notes'));
+ if(!r.ok)nb.append(el('div','notes','Could not read notes: '+r.error));r.notes.forEach(x=>nb.append(el('div','notes',(x.at?x.at+'  ':'')+x.text)))}
+async function poll(){try{const a=await api('/api/approvals');$('appr').classList.toggle('hidden',!a.length);const s=await api('/api/status');
+ $('agents').textContent=s.agents.join(' · ');$('poll').textContent=s.poller_error?'alarm poller: '+s.poller_error:(s.demo?'demo mode':'alarm poller: ok');$('poll').className='pill '+(s.poller_error?'warn':'ok');
+ if(s.demo&&!window._d){window._d=1;$('demoPanel').classList.remove('hidden');[['disk_full','Disk full'],['service_down','IIS down'],['cpu_runaway','CPU runaway'],['memory_pressure','Memory (no runbook)']].forEach(([f,l])=>{const b=el('button','btn',l);b.onclick=async()=>{await api('/api/demo/inject/'+f,{method:'POST'});loadRuns()};$('faults').append(b)});
+ const rb=el('button','btn','Reset');rb.onclick=()=>api('/api/demo/reset',{method:'POST'});$('faults').append(rb)}}catch(e){}}
+setInterval(poll,2500);setInterval(loadRuns,4000);poll();loadRuns();
+</script></body></html>

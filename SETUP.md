@@ -1,0 +1,34 @@
+# FURY setup (do in this order)
+
+## A. AWS (about 10 min, all in the browser)
+1. Open the AWS console, region ap-south-2, click the CloudShell icon (>_) in the top bar.
+2. CloudShell menu Actions > Upload file: upload `aws_setup/setup_aws.py`, `aws_setup/ec2_setup.ps1`, `aws_setup/faults.py` (same folder).
+3. Run: `python3 setup_aws.py --region ap-south-2 --instance i-00654e3403673c840`
+4. It prints two key pairs (shown once). Copy them into your laptop `.env`. Last line must show AWSPowerShell(Write-CWMetricData)=True.
+
+## B. Slack (about 15 min)
+App scopes (OAuth & Permissions > Bot Token Scopes): chat:write, channels:read, channels:history, groups:read, users:read, im:write
+Event Subscriptions > Subscribe to bot events: message.channels   (typed yes/no replies in the approval thread)
+Socket Mode ON (app-level token, scope connections:write, starts xapp-). Interactivity ON (no URL needed). Install to workspace (xoxb- token).
+Create #sre-approvals and #sre-l2, then in each: /invite @YourBot
+
+## C. ServiceNow
+Group "SRE-Platform L2" must exist (User Administration > Groups > New). User fury_integration needs role itil, "Web service access only".
+
+## D. Laptop
+    pip install -r requirements.txt
+    copy .env.example .env      (fill it in; never paste it into chat)
+    python check_all.py         (every line must PASS)
+    python run_fury.py          (open http://127.0.0.1:8080)
+Try the UI with no external services first:  python run_fury.py --demo
+
+## E. Demo
+CloudShell: `python3 faults.py service_down`  -> alarm in ~2 min -> Slack approval request -> approve -> ticket resolved.
+Also: disk_full, cpu_runaway, memory_pressure (no runbook, escalates), reset.
+Week 5 comparison: `python compare.py`.   Tests: `python -m unittest tests.test_flow tests.test_adapters`
+
+## Mixing real and fake (2-hour mode)
+In .env set any of FURY_SNOW / FURY_TARGET / FURY_CHAT to `fake` while the others are `real`. Example: real ServiceNow, fake server and chat:
+    FURY_SNOW=real
+    FURY_TARGET=fake      (UI shows buttons to break the fake server)
+    FURY_CHAT=fake        (auto-approves after 5 seconds)
