@@ -27,6 +27,14 @@ CloudShell: `python3 faults.py service_down`  -> alarm in ~2 min -> Slack approv
 Also: disk_full, cpu_runaway, memory_pressure (no runbook, escalates), reset.
 Week 5 comparison: `python compare.py`.   Tests: `python -m unittest tests.test_flow tests.test_adapters`
 
+## F. Week 6: telemetry, measures, eval set
+    python tests/eval_set.py                    # scenario + classifier + privacy eval, console report
+    python tests/eval_set.py --json report.json # also write the full report to disk
+    curl http://127.0.0.1:8080/api/metrics       # live counters/histograms while run_fury.py is running
+Set `FURY_OTEL=on` (and `pip install opentelemetry-sdk opentelemetry-exporter-otlp-proto-http`) to ship real
+OpenTelemetry spans/metrics instead of the built-in in-process recorder; `/api/metrics` works either way.
+See `PRIVACY.md` for what's sent to the LLM, what's redacted, and how long chat context is kept.
+
 ## Mixing real and fake (2-hour mode)
 In .env set any of FURY_SNOW / FURY_TARGET / FURY_CHAT to `fake` while the others are `real`. Example: real ServiceNow, fake server and chat:
     FURY_SNOW=real

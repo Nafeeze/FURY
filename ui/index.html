@@ -38,12 +38,38 @@ textarea{flex:1;resize:none;border:0;outline:0;background:transparent;color:var(
 .panel{border-radius:24px;padding:20px 24px;margin-bottom:16px}table{width:100%;border-collapse:collapse;font-size:13px}th{text-align:left;color:var(--muted);font:600 11px var(--sans);letter-spacing:.12em;text-transform:uppercase;padding:8px}
 td{padding:9px 8px;border-top:1px solid rgba(255,255,255,.08)}tr.row{cursor:pointer}tr.row:hover{background:rgba(255,255,255,.06)}.notes{font:12px var(--mono);color:var(--muted);white-space:pre-wrap;padding:10px 12px;background:rgba(0,0,0,.25);border-radius:12px;margin:4px 0}
 .dash{flex:1;min-height:0;overflow-y:auto}.faults{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.tab{font-size:12px}
+.obs>*{flex:none}.obs{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:16px;padding-right:4px}
+.sigs{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.sig{border-radius:18px;padding:14px 16px;border:1px solid var(--line);background:rgba(255,255,255,.05);display:flex;flex-direction:column;gap:6px}
+.sig.act{border-color:rgba(255,194,77,.7);background:rgba(255,194,77,.12)}.sig.ok{border-color:rgba(94,234,212,.35)}.sig.idle{opacity:.7}
+.sig h4{margin:0;font:600 14px var(--sans)}.sig .v{font:500 13px var(--mono)}.sig .a{font-size:12px;color:var(--muted);line-height:1.5}
+.sig .st{font:600 11px var(--sans);letter-spacing:.08em;text-transform:uppercase}.sig.act .st{color:var(--amber)}.sig.ok .st{color:var(--teal)}.sig.idle .st{color:var(--grey)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.kpi{padding:14px 16px;border-radius:18px;background:rgba(255,255,255,.05);border:1px solid var(--line)}.kpi b{display:block;font:700 26px var(--sans);margin-top:4px}.kpi span{font-size:12px;color:var(--muted)}
+.split{display:grid;grid-template-columns:minmax(260px,340px) 1fr;gap:16px;min-height:0}
+@media(max-width:1100px){.split{grid-template-columns:1fr}}
+.trl{display:flex;flex-direction:column;gap:6px;max-height:430px;overflow-y:auto}
+.tr{padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid transparent;cursor:pointer;font-size:13px}.tr:hover{background:rgba(255,255,255,.09)}.tr.sel{border-color:var(--violet);background:rgba(139,107,255,.18)}
+.tr .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wf{display:flex;flex-direction:column;gap:3px;margin-top:10px}
+.wr{display:grid;grid-template-columns:230px 1fr 70px;gap:10px;align-items:center;padding:3px 6px;border-radius:8px;cursor:pointer;font-size:12px}.wr:hover{background:rgba(255,255,255,.07)}.wr.sel{background:rgba(139,107,255,.2)}
+.wn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.wn i{font-style:normal;color:var(--muted);margin-left:6px}
+.wt{position:relative;height:14px;background:rgba(255,255,255,.05);border-radius:4px}.wb{position:absolute;top:0;bottom:0;border-radius:4px;min-width:3px;background:var(--violet)}
+.wb.tool{background:var(--cyan)}.wb.ret{background:var(--teal)}.wb.appr{background:var(--amber)}.wb.llm{background:var(--pink)}.wb.root{background:var(--grey)}.wb.bad{background:#ff4d6d;box-shadow:0 0 0 2px rgba(255,77,109,.35)}
+.wd{text-align:right;font-family:var(--mono);color:var(--muted)}
+.det{margin-top:10px;font:12px var(--mono);color:var(--muted);background:rgba(0,0,0,.25);border-radius:12px;padding:10px 12px;white-space:pre-wrap;word-break:break-word}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:8px}.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:1100px){.cols{grid-template-columns:1fr}}
+.bar{display:grid;grid-template-columns:110px 1fr 40px;gap:10px;align-items:center;font-size:12px;margin:6px 0}.bar .tk2{height:10px;border-radius:5px;background:rgba(255,255,255,.07)}.bar .fl{height:100%;border-radius:5px;background:var(--violet)}
+.ev{font-size:13px;display:flex;gap:8px;align-items:baseline;padding:4px 0}.ev b{font:600 11px var(--sans);letter-spacing:.06em;text-transform:uppercase;min-width:42px}.ev .p{color:var(--teal)}.ev .f{color:#ff6b8a}
+.note{font-size:12px;color:var(--muted);line-height:1.6}
 </style></head><body>
 <div class="bg"><i class="orb o1"></i><i class="orb o2"></i><i class="orb o3"></i></div>
 <div class="shell">
  <aside class="sidebar glass">
   <div class="brand"><div class="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0a0e1f" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></div><div class="word">FURY</div></div>
-  <div class="tabs"><button id="tChat" class="tab active">Chat</button><button id="tInc" class="tab">Incidents</button></div>
+  <div class="tabs"><button id="tChat" class="tab active">Chat</button><button id="tInc" class="tab">Incidents</button><button id="tObs" class="tab">Observability</button></div>
   <button id="newBtn" class="new-btn">+ New chat</button>
   <div class="lbl">Recent runs</div><div id="runs" class="list"></div>
   <div><div class="lbl">Agents</div><div id="agents" class="agents"></div></div>
@@ -60,14 +86,34 @@ td{padding:9px 8px;border-top:1px solid rgba(255,255,255,.08)}tr.row{cursor:poin
    <div class="panel glass hidden" id="demoPanel"><div class="lbl">Demo mode: break the fake server</div><div class="faults" id="faults"></div></div>
   </div>
  </main>
+ <main class="main hidden" id="obsView">
+  <header class="header glass"><div class="hleft"><div class="m" id="obsBackend">telemetry</div><h1>Observability</h1></div><span id="obsPriv" class="pill ok">redaction on</span><button id="obsRefresh" class="btn">Refresh</button></header>
+  <div class="obs">
+   <div class="panel glass" style="margin:0"><div class="lbl">Signals that need a person</div><div class="sigs" id="sigs" style="margin-top:12px"></div></div>
+   <div class="kpis" id="kpis"></div>
+   <div class="split">
+    <div class="panel glass" style="margin:0"><div class="lbl">Requests (traces)</div><div class="trl" id="trl" style="margin-top:10px"></div></div>
+    <div class="panel glass" style="margin:0;min-width:0"><div class="lbl" id="wfTitle">Select a request to see its trace</div><div id="wfMeta" class="m" style="margin-top:4px"></div><div class="wf" id="wf"></div>
+     <div class="legend"><span><i style="background:var(--grey)"></i>request</span><span><i style="background:var(--violet)"></i>agent step</span><span><i style="background:var(--teal)"></i>retrieval</span><span><i style="background:var(--cyan)"></i>tool</span><span><i style="background:var(--amber)"></i>approval</span><span><i style="background:var(--pink)"></i>model</span><span><i style="background:#ff4d6d"></i>failed</span></div>
+     <div class="det hidden" id="det"></div></div>
+   </div>
+   <div class="cols">
+    <div class="panel glass" style="margin:0"><div class="lbl">Agent step latency</div><table><thead><tr><th>Step</th><th>Calls</th><th>Avg ms</th><th>p95 ms</th></tr></thead><tbody id="lat"></tbody></table></div>
+    <div class="panel glass" style="margin:0"><div class="lbl">Outcomes and model use</div><div id="oc" style="margin-top:8px"></div><div id="llm" style="margin-top:14px"></div></div>
+   </div>
+   <div class="panel glass" style="margin:0"><div class="lbl" id="evTitle">Evaluation set</div><div id="ev" style="margin-top:8px"></div></div>
+   <div class="panel glass" style="margin:0"><div class="lbl">Privacy and retention</div><div class="note" id="privNote" style="margin-top:8px"></div></div>
+  </div>
+ </main>
 </div>
 <script>
 const $=id=>document.getElementById(id);let cur=null;const ST={'1':'New','2':'In Progress','3':'On Hold','6':'Resolved','7':'Closed'};
-const api=(u,o)=>fetch(u,o).then(r=>r.json());
+let SID=sessionStorage.getItem('furySession');if(!SID){SID=crypto.randomUUID();sessionStorage.setItem('furySession',SID)}
+const api=(u,o)=>fetch(u,Object.assign({},o,{headers:Object.assign({'X-Fury-Session':SID},(o&&o.headers)||{})})).then(r=>r.json());
 function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e}
-function tab(w){$('chatView').classList.toggle('hidden',w!=='chat');$('incView').classList.toggle('hidden',w!=='inc');$('tChat').classList.toggle('active',w==='chat');$('tInc').classList.toggle('active',w==='inc');if(w==='inc')loadInc()}
-$('tChat').onclick=()=>tab('chat');$('tInc').onclick=()=>tab('inc');
-$('newBtn').onclick=()=>{$('inner').querySelectorAll('.user,.bot:not(:first-child)').forEach(n=>n.remove());tab('chat');$('box').focus()};
+function tab(w){$('chatView').classList.toggle('hidden',w!=='chat');$('incView').classList.toggle('hidden',w!=='inc');$('obsView').classList.toggle('hidden',w!=='obs');$('tObs').classList.toggle('active',w==='obs');$('tChat').classList.toggle('active',w==='chat');$('tInc').classList.toggle('active',w==='inc');if(w==='inc')loadInc();if(w==='obs')loadObs()}
+$('tObs').onclick=()=>tab('obs');$('tChat').onclick=()=>tab('chat');$('tInc').onclick=()=>tab('inc');
+$('newBtn').onclick=()=>{api('/api/chat/reset',{method:'POST'});$('inner').querySelectorAll('.user,.bot:not(:first-child)').forEach(n=>n.remove());tab('chat');$('box').focus()};
 $('box').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('form').requestSubmit()}});
 $('form').onsubmit=async e=>{e.preventDefault();const t=$('box').value.trim();if(!t)return;$('box').value='';
  $('inner').append(el('div','bub user',t));const b=el('div','bub bot','Looking into it...');$('inner').append(b);$('chat').scrollTop=1e9;
@@ -88,5 +134,52 @@ async function poll(){try{const a=await api('/api/approvals');$('appr').classLis
  $('agents').textContent=s.agents.join(' · ');$('poll').textContent=s.poller_error?'alarm poller: '+s.poller_error:(s.demo?'demo mode':'alarm poller: ok');$('poll').className='pill '+(s.poller_error?'warn':'ok');
  if(s.demo&&!window._d){window._d=1;$('demoPanel').classList.remove('hidden');[['disk_full','Disk full'],['service_down','IIS down'],['cpu_runaway','CPU runaway'],['memory_pressure','Memory (no runbook)']].forEach(([f,l])=>{const b=el('button','btn',l);b.onclick=async()=>{await api('/api/demo/inject/'+f,{method:'POST'});loadRuns()};$('faults').append(b)});
  const rb=el('button','btn','Reset');rb.onclick=()=>api('/api/demo/reset',{method:'POST'});$('faults').append(rb)}}catch(e){}}
+
+let selT=null,selS=null,lastTrace=null;
+const KIND=n=>n==='tool.call'?'tool':n==='retrieval.runbook'?'ret':n==='approval.wait'?'appr':n==='llm.classify'?'llm':(n==='chat.request'||n==='run')?'root':'';
+const fmt=ms=>ms==null?'-':ms>=1000?(ms/1000).toFixed(2)+' s':(ms<10?ms.toFixed(1):Math.round(ms))+' ms';
+function spanLabel(s){const a=s.attrs||{};return a.skill||a.tool||a.action||a.runbook||a.model||a.source||''}
+async function loadObs(){if($('obsView').classList.contains('hidden'))return;
+ const o=await api('/api/obs/overview');
+ $('obsBackend').textContent='backend: '+o.backend+(o.backend==='opentelemetry'?(o.otel_endpoint?' (OTLP export)':' (console export)'):' (built-in recorder)');
+ $('obsPriv').textContent=o.redaction?'redaction on':'redaction OFF';$('obsPriv').className='pill '+(o.redaction?'ok':'warn');
+ const sg=$('sigs');sg.textContent='';o.signals.forEach(x=>{const d=el('div','sig '+x.level);d.append(el('div','st',x.level==='act'?'Act now':x.level==='ok'?'Healthy':'Waiting for data'),el('h4',null,x.title),el('div','v',x.value+'  (limit '+x.threshold+')'),el('div','a','Owner: '+x.owner+'. '+(x.level==='act'?x.action:'When it trips: '+x.action)));sg.append(d)});
+ const k=o.kpis,kp=$('kpis');kp.textContent='';
+ [['Runs',k.runs,'investigations started'],['Resolved',k.resolve_rate==null?'-':Math.round(k.resolve_rate*100)+'%','of finished runs'],['Run p95',fmt(k.run_p95_ms),'avg '+fmt(k.run_avg_ms)],['Tool calls',k.tool_calls,'read and fix actions'],['Model calls',k.llm_calls,k.llm_calls?k.llm_ok+' ok':'model off, rules used'],['Tokens',(k.tokens_in+k.tokens_out)||0,k.tokens_in+' in / '+k.tokens_out+' out'],['Span errors',k.errors,'failed steps recorded']]
+  .forEach(([l,v,sub])=>{const d=el('div','kpi');d.append(el('span',null,l),el('b',null,String(v)),el('span',null,sub));kp.append(d)});
+ const tl=$('trl');tl.textContent='';if(!o.traces.length)tl.append(el('div','note','No requests yet. Send a chat message or inject a fault, then refresh.'));
+ o.traces.forEach(t=>{const d=el('div','tr'+(t.trace_id===selT?' sel':''));const ttl=el('div','t');ttl.append(el('span','dot '+(t.errors?'error':t.outcome||'')),document.createTextNode(t.label||t.intent||t.root));
+  d.append(ttl,el('div','m',(t.source||'chat')+' · '+(t.outcome||t.intent||'-')+' · '+fmt(t.ms)+' · '+t.spans+' spans'+(t.errors?' · '+t.errors+' failed':'')));d.onclick=()=>{selT=t.trace_id;selS=null;loadObs();openTrace(t.trace_id)};tl.append(d)});
+ if(!selT&&o.traces.length){selT=o.traces[0].trace_id;loadObs();return}
+ if(selT)openTrace(selT);
+ const lat=$('lat');lat.textContent='';const rows=Object.entries(o.metrics.histograms).filter(([n])=>n.startsWith('agent.hop.duration_ms'));
+ rows.sort((a,b)=>b[1].p95_ms-a[1].p95_ms).slice(0,10).forEach(([n,h])=>{const m=n.match(/'skill': '([^']*)'/),to=n.match(/'to': '([^']*)'/);const tr=el('tr');[(to?to[1]:'?')+'.'+(m?m[1]:'?'),h.count,h.avg_ms,h.p95_ms].forEach(x=>tr.append(el('td',null,String(x))));lat.append(tr)});
+ if(!rows.length){const tr=el('tr');const td=el('td',null,'No agent steps recorded yet.');td.colSpan=4;tr.append(td);lat.append(tr)}
+ const oc=$('oc');oc.textContent='';const ocs=k.outcomes,tot=Object.values(ocs).reduce((a,b)=>a+b,0);
+ if(!tot)oc.append(el('div','note','No finished incidents yet.'));Object.entries(ocs).forEach(([n,v])=>{const b=el('div','bar');const t=el('div','tk2');const f=el('div','fl');f.style.width=(100*v/tot)+'%';if(n==='escalated')f.style.background='var(--amber)';if(n==='resolved')f.style.background='var(--teal)';t.append(f);b.append(el('span',null,n),t,el('span','m',String(v)));oc.append(b)});
+ const ll=$('llm');ll.textContent='';ll.append(el('div','lbl','Model classification results'));const lr=Object.entries(k.llm_results);
+ if(!lr.length)ll.append(el('div','note','No chat messages yet.'));lr.forEach(([n,v])=>{const b=el('div','bar');const t=el('div','tk2');const f=el('div','fl');const T=lr.reduce((a,x)=>a+x[1],0);f.style.width=(100*v/T)+'%';f.style.background=n==='ok'?'var(--teal)':n==='off'?'var(--grey)':'var(--pink)';t.append(f);b.append(el('span',null,n),t,el('span','m',String(v)));ll.append(b)});
+ $('privNote').textContent='Spans carry shapes (lengths, enums, ids), not message text. Emails, IPs, keys and long numbers are scrubbed before storage. Retention: '+o.retention+'. This view is for SRE leads and the SRE Admin; put it behind your normal login before exposing it beyond localhost.';
+ loadEval()}
+async function loadEval(){const r=await api('/api/obs/eval'),b=$('ev');b.textContent='';
+ if(!r.available){b.append(el('div','note','No evaluation report yet. Run:  python tests/eval_set.py'));return}
+ $('evTitle').textContent='Evaluation set (last run '+r.at+')';
+ const sp=r.scenarios.filter(x=>x.pass).length;
+ const line=(ok,t)=>{const d=el('div','ev');d.append(el('b',ok?'p':'f',ok?'pass':'fail'),el('span',null,t));b.append(d)};
+ line(sp===r.scenarios.length,'Scenarios: '+sp+' of '+r.scenarios.length+' behaved as expected');
+ r.scenarios.filter(x=>!x.pass).forEach(x=>line(false,x.name+': '+x.notes.join('; ')));
+ line(r.classifier.pass,'Intent classifier: '+Math.round(r.classifier.accuracy*100)+'% on '+r.classifier.n+' labelled messages');
+ r.misses.forEach(m=>line(false,'"'+m.text+'" expected '+m.expected[0]+', got '+m.got[0]));
+ line(r.privacy.pass,'Privacy: planted secrets '+(r.privacy.pass?'never reached telemetry':'LEAKED'))}
+async function openTrace(id){const t=await api('/api/obs/trace/'+id);if(t.error)return;lastTrace=t;
+ $('wfTitle').textContent='Trace '+id.slice(0,12);$('wfMeta').textContent=t.spans.length+' spans, '+fmt(t.total_ms)+' end to end';
+ const w=$('wf');w.textContent='';t.spans.forEach(s=>{const r=el('div','wr'+(s.span_id===selS?' sel':''));
+  const n=el('div','wn');n.style.paddingLeft=(s.depth*14)+'px';n.append(document.createTextNode(s.name),el('i',null,spanLabel(s)));
+  const tk=el('div','wt'),bar=el('div','wb '+KIND(s.name)+(s.ok?'':' bad'));bar.style.left=(100*s.offset_ms/t.total_ms)+'%';bar.style.width=Math.max(.6,100*s.ms/t.total_ms)+'%';tk.append(bar);
+  r.append(n,tk,el('div','wd',fmt(s.ms)));r.onclick=()=>{selS=s.span_id;showDet(s);w.querySelectorAll('.wr').forEach(x=>x.classList.remove('sel'));r.classList.add('sel')};w.append(r)});
+ const cur=t.spans.find(s=>s.span_id===selS);if(cur)showDet(cur);else $('det').classList.add('hidden')}
+function showDet(s){const d=$('det');d.classList.remove('hidden');const a=Object.entries(s.attrs||{}).filter(([k,v])=>v!==null&&v!==undefined).map(([k,v])=>k+': '+v).join('\n');
+ d.textContent=s.name+'  ('+fmt(s.ms)+', starts +'+fmt(s.offset_ms)+')\nstatus: '+(s.ok?'ok':'FAILED  '+(s.error||''))+'\nspan '+s.span_id+(s.parent_id?'  parent '+s.parent_id:'  (root)')+'\n'+a}
+$('obsRefresh').onclick=loadObs;setInterval(loadObs,3000);
 setInterval(poll,2500);setInterval(loadRuns,4000);poll();loadRuns();
 </script></body></html>

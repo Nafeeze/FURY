@@ -1,9 +1,11 @@
 """Web UI + API. Engineers chat here; alarms from CloudWatch also show up as runs. Approvals are NOT done here:
 they go to the SRE Admin on Slack (a different person), the UI only shows that one is pending."""
-import re, threading, time, uuid
+import json, os, re, threading, time, uuid
 from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 from . import runbooks as RB
+from . import llm as LLM
+from . import telemetry
 from .agents import REPORT_KEYWORDS
 
 STEP_TEXT = {"match_runbook": "Looked for a matching runbook", "run_checks": "Ran read-only checks on the server",
@@ -92,12 +94,18 @@ class Ctx:
     def submit(self, skill, data, source, label):
         rid = uuid.uuid4().hex[:8]
         run = self.runs[rid] = {"id": rid, "label": label, "source": source, "state": "queued", "start": None, "end": None, "out": None, "at": time.strftime("%H:%M:%S")}
+        snap = telemetry.capture()   # the worker thread continues the caller's trace (chat request or alarm)
         def work():
-            with self.lock:
-                run.update(state="running", start=len(self.bus.trace))
-                t = self.bus.send(source, skill, data, to="triage")
-                run.update(state="done" if t.state == "completed" else "error", end=len(self.bus.trace),
-                           out=t.output if t.state == "completed" else {"outcome": "error", "reason": t.error})
+            with telemetry.attach(snap), telemetry.span("run", run_id=rid, source=source, skill=skill, label=label) as sp:
+                run["trace_id"] = sp["trace_id"]
+                with self.lock:
+                    run.update(state="running", start=len(self.bus.trace))
+                    t = self.bus.send(source, skill, data, to="triage")
+                    run.update(state="done" if t.state == "completed" else "error", end=len(self.bus.trace),
+                               out=t.output if t.state == "completed" else {"outcome": "error", "reason": t.error})
+                    o = (run["out"] or {}).get("outcome")
+                    telemetry.set_attr(sp, "outcome", o); telemetry.set_attr(sp, "ticket", (run["out"] or {}).get("ticket"))
+                    if run["state"] == "error": sp["ok"], sp["error"] = False, telemetry.redact(t.error, 120)
         threading.Thread(target=work, daemon=True).start(); return rid
     def answer(self, label, message):
         """A chat reply that needs no investigation: no agents, no ticket, not listed under recent runs."""
@@ -108,7 +116,7 @@ class Ctx:
     def view(self, run):
         s, e = run["start"], run["end"]
         steps = [] if s is None else [{"text": STEP_TEXT[x["skill"]], "state": x["state"]} for x in self.bus.trace[s:e] if STEP_TEXT.get(x["skill"])]
-        d = {k: run[k] for k in ("id", "label", "source", "state", "at")}
+        d = {k: run[k] for k in ("id", "label", "source", "state", "at")}; d["trace_id"] = run.get("trace_id")
         d.update(steps=steps, ticket=(run["out"] or {}).get("ticket") or (self.triage.ticket if run["state"] == "running" else None),
                  outcome=(run["out"] or {}).get("outcome"), message=final_message(run["out"]) if run["out"] else None, waiting_approval=bool(self.chat.pending()) and run["state"] == "running")
         return d
@@ -121,11 +129,30 @@ def create_app(ctx, demo=False):
     def chat():
         text = (request.get_json(silent=True) or {}).get("message", "").strip()
         if not text: return jsonify(error="empty message"), 400
-        intent = classify(text)
-        if intent == "report": return jsonify(run=ctx.submit("handle_report", {"text": text, "instance": ctx.instance}, "chat", text[:60]))
-        reply = {"greeting": "You are welcome." if re.match(r"^(thanks|thank you|thx)", text.strip().lower()) else "Goodbye." if text.strip().lower().startswith("bye") else "Hello. Tell me what is wrong with the server, or ask about an incident.", "help": HELP_TEXT, "clarify": CLARIFY,
-                 "off_topic": OFF_TOPIC}.get(intent) or (incident_status(ctx, text) if intent == "incident_status" else incident_list(ctx) if intent == "incident_list" else howto_reply(ctx, text))
-        return jsonify(run=ctx.answer(text[:60], reply))
+        session_id = (request.headers.get("X-Fury-Session") or "default")[:80]
+        # One root span per chat request. Only shapes are recorded (length, intent), never the message itself.
+        with telemetry.span("chat.request", source="chat", text_len=len(text)) as root:
+            verdict = LLM.classify(text, session_id=session_id)  # None if FURY_LLM is off, or on any failure: falls back to rules below
+            intent = verdict["intent"] if verdict else classify(text)
+            telemetry.set_attr(root, "intent", intent); telemetry.set_attr(root, "classifier", "llm" if verdict else "rules")
+            telemetry.counter("chat.intent", intent=intent, classifier="llm" if verdict else "rules")
+            if intent == "report":
+                rid = ctx.submit("handle_report", {"text": text, "instance": ctx.instance}, "chat", text[:60])
+                ctx.runs[rid]["trace_id"] = root["trace_id"]
+                return jsonify(run=rid)
+            if verdict and verdict.get("reply") and intent in ("help", "greeting", "off_topic", "clarify", "howto"):
+                reply = verdict["reply"]
+            else:
+                reply = {"greeting": "You are welcome." if re.match(r"^(thanks|thank you|thx)", text.strip().lower()) else "Goodbye." if text.strip().lower().startswith("bye") else "Hello. Tell me what is wrong with the server, or ask about an incident.", "help": HELP_TEXT, "clarify": CLARIFY,
+                         "off_topic": OFF_TOPIC}.get(intent) or (incident_status(ctx, text) if intent == "incident_status" else incident_list(ctx) if intent == "incident_list" else howto_reply(ctx, text))
+            rid = ctx.answer(text[:60], reply)
+            ctx.runs[rid]["trace_id"] = root["trace_id"]
+            return jsonify(run=rid)
+    @app.post("/api/chat/reset")
+    def chat_reset():
+        session_id = (request.headers.get("X-Fury-Session") or "default")[:80]
+        LLM.SESSIONS.reset(session_id)
+        return jsonify(ok=True)
     @app.get("/api/run/<rid>")
     def run(rid): return (jsonify(ctx.view(ctx.runs[rid])) if rid in ctx.runs else (jsonify(error="unknown run"), 404))
     @app.get("/api/runs")
@@ -143,6 +170,32 @@ def create_app(ctx, demo=False):
     @app.get("/api/status")
     def status():
         return jsonify(demo=demo, poller_error=getattr(ctx.poller, "last_error", ""), agents=sorted(ctx.bus.agents), instance=ctx.instance)
+    @app.get("/api/metrics")
+    def metrics():
+        """Measures: agent hop latency/counts, triage outcomes, and LLM classify
+        success/fallback breakdown, all already redacted at the point of capture.
+        Backend tells you whether this is real OpenTelemetry (FURY_OTEL=on + SDK
+        installed) or the built-in in-process recorder."""
+        return jsonify(backend=telemetry.backend(), **telemetry.summary())
+    @app.get("/api/obs/overview")
+    def obs_overview():
+        """Everything the Observability tab draws, in one call so it never half-renders."""
+        return jsonify(backend=telemetry.backend(), otel_endpoint=bool(os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")), llm_on=os.getenv("FURY_LLM", "off").lower() == "on",
+                       kpis=telemetry.kpis(), signals=telemetry.signals(), traces=telemetry.traces(25), metrics=telemetry.summary(),
+                       retention="in memory, newest 2000 spans, cleared on restart", redaction=os.getenv("FURY_TELEMETRY_RAW", "off").lower() != "on")
+    @app.get("/api/obs/trace/<tid>")
+    def obs_trace(tid):
+        t = telemetry.trace(tid)
+        return (jsonify(t) if t else (jsonify(error="unknown trace"), 404))
+    @app.get("/api/obs/eval")
+    def obs_eval():
+        p = Path(__file__).resolve().parent.parent / "reports" / "eval_latest.json"
+        if not p.exists(): return jsonify(available=False)
+        try: r = json.loads(p.read_text(encoding="utf-8"))
+        except ValueError: return jsonify(available=False)
+        return jsonify(available=True, at=time.strftime("%Y-%m-%d %H:%M", time.localtime(p.stat().st_mtime)),
+                       scenarios=r["scenarios"], classifier={k: r["classifier"][k] for k in ("accuracy", "n", "pass")}, misses=[x for x in r["classifier"]["rows"] if not x["correct"]],
+                       privacy=r["privacy"], backend=r.get("backend"))
     if demo:
         from .system import ALERTS
         @app.post("/api/demo/inject/<fault>")

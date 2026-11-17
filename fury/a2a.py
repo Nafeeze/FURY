@@ -2,6 +2,7 @@
 Not the full A2A spec: same ideas (card, task, states incl. input-required), simple JSON over HTTP."""
 import json, time, uuid, urllib.request
 from dataclasses import dataclass, field
+from . import telemetry
 
 STATES = ("submitted", "working", "input-required", "completed", "failed")
 
@@ -74,7 +75,14 @@ class Bus:
         name = to or self.find(skill)
         task = Task(skill=skill, input=data, sender=sender)
         t0 = time.perf_counter()
-        self.agents[name].run(task)
-        self.trace.append({"from": sender, "to": name, "skill": skill, "state": task.state,
-                           "ms": round((time.perf_counter() - t0) * 1000, 1)})
+        with telemetry.span("agent.hop", skill=skill, agent_from=sender, agent_to=name) as sp:
+            self.agents[name].run(task)
+            # Agent.run swallows exceptions into task.state, so record the real outcome here
+            telemetry.set_attr(sp, "state", task.state)
+            if task.state == "failed":
+                sp["ok"], sp["error"] = False, telemetry.redact(task.error, 120)
+        ms = round((time.perf_counter() - t0) * 1000, 1)
+        self.trace.append({"from": sender, "to": name, "skill": skill, "state": task.state, "ms": ms})
+        telemetry.histogram("agent.hop.duration_ms", ms, skill=skill, to=name)
+        telemetry.counter("agent.hop.count", skill=skill, to=name, state=task.state)
         return task

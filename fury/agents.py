@@ -1,6 +1,7 @@
 import json, time
 from .a2a import Agent, Task
 from . import approvals, runbooks as RB
+from . import telemetry
 
 READ_TOOLS = {"check_disk", "check_cpu", "check_service", "check_memory", "read_events"}
 ACTION_CATALOG = {"restart_service": {"W3SVC"}, "clear_temp_files": {"F:\\fury-tmp"}, "kill_process": {"fury-rogue"}}
@@ -20,7 +21,11 @@ class Knowledge(Agent):
     name, description = "knowledge", "Finds the runbook for a symptom, or says there is none"
     def __init__(self, runbook_list): self.rbs = runbook_list; self.skills = {"match_runbook": self.match}
     def match(self, task):
-        rb, score = RB.match(self.rbs, task.input["query"])
+        with telemetry.span("retrieval.runbook", corpus_size=len(self.rbs)) as sp:
+            rb, score = RB.match(self.rbs, task.input["query"])
+            telemetry.set_attr(sp, "hit", bool(rb)); telemetry.set_attr(sp, "runbook", rb.id if rb else None)
+            telemetry.set_attr(sp, "score", score)
+            telemetry.counter("retrieval.count", hit=bool(rb))
         return {"runbook": rb.as_dict() if rb else None, "score": score}
 
 # ---------------- Diagnostic: READ-ONLY on the server ----------------
@@ -31,7 +36,11 @@ class Diagnostic(Agent):
         out = []
         for s in task.input["steps"]:
             if s["tool"] not in READ_TOOLS: raise PermissionError(f"diagnostic is read-only; '{s['tool']}' refused")
-            out.append({"tool": s["tool"], "params": s.get("params", {}), "result": getattr(self.t, s["tool"])(**s.get("params", {}))})
+            with telemetry.span("tool.call", tool=s["tool"], mode="read") as sp:
+                res = getattr(self.t, s["tool"])(**s.get("params", {}))
+                if isinstance(res, dict) and "healthy" in res: telemetry.set_attr(sp, "healthy", bool(res["healthy"]))
+            telemetry.counter("tool.call.count", tool=s["tool"], mode="read")
+            out.append({"tool": s["tool"], "params": s.get("params", {}), "result": res})
         return {"evidence": out}
 
 # ---------------- Remediation: the ONLY agent that can change the server ----------------
@@ -50,7 +59,10 @@ class Remediation(Agent):
         p, err = approvals.verify(ap.output["token"], a, tgt, tk)
         if err: raise PermissionError(f"approval rejected by remediation: {err}")
         task.state = "working"
-        result = self.t.act(a, tgt); self.done[(tk, a)] = self.done.get((tk, a), 0) + 1
+        with telemetry.span("tool.call", tool=a, mode="act") as sp:
+            result = self.t.act(a, tgt)
+        telemetry.counter("tool.call.count", tool=a, mode="act")
+        self.done[(tk, a)] = self.done.get((tk, a), 0) + 1
         return {"result": result, "approver": p["approver"], "approved_at": time.strftime("%Y-%m-%d %H:%M:%S")}
 
 # ---------------- ITSM: owns ServiceNow ----------------
@@ -88,6 +100,15 @@ class Comms(Agent):
         task.state = "input-required"
         self.c.post_approval(self.ch_a, f":warning: *Approval needed* for {i['ticket']}\nAction: `{i['action']}` on `{i['target']}`\n{i['summary']}\nReply Approve / Reject.", rid)
         deadline = time.time() + self.ttl
+        with telemetry.span("approval.wait", action=i["action"], ttl_s=self.ttl) as sp:
+            try:
+                return self._await(i, rid, deadline, sp)
+            except PermissionError as e:
+                msg = str(e)
+                telemetry.set_attr(sp, "decision", "rejected" if msg.startswith("rejected") else "timeout")
+                telemetry.counter("approval.count", decision=sp["attrs"]["decision"])
+                raise
+    def _await(self, i, rid, deadline, sp):
         try:
             while time.time() < deadline:
                 d = self.c.wait_decision(rid, timeout=max(deadline - time.time(), 0.1))
@@ -96,6 +117,7 @@ class Comms(Agent):
                 if user not in self.approvers:
                     self.c.post(self.ch_a, f"Ignored a response from <@{user}>: not an authorised approver."); continue
                 if decision != "approve": raise PermissionError(f"rejected by {user}")
+                telemetry.set_attr(sp, "decision", "approved"); telemetry.counter("approval.count", decision="approved")
                 return {"decision": "approved", "approver": user, "token": approvals.sign(i["action"], i["target"], i["ticket"], user)}
             raise PermissionError("approval timed out with no authorised response")
         finally:
@@ -146,6 +168,7 @@ class Triage(Agent):
         initial = [(s["tool"], s["params"]) for s in pre] if rb else GENERIC_CHECKS.get(a.get("metric"), [])
         ev = self.ok("run_checks", {"steps": [{"tool": t, "params": p} for t, p in initial]})["evidence"] if initial else []
         if ev and ev[0]["result"].get("healthy", False):
+            telemetry.counter("triage.outcome", outcome="false_alarm")
             return {"outcome": "false_alarm", "ticket": None, "runbook": rb["id"] if rb else None, "reason": "first check is healthy; alarm not confirmed"}
         key = f"{a['name']} {a['instance']}"
         try:
@@ -156,13 +179,17 @@ class Triage(Agent):
         self.ticket = tk["number"]
         if tk["duplicate"]:
             self.note("Alarm fired again while this incident is open; no new ticket created.")
+            telemetry.counter("triage.outcome", outcome="duplicate")
             return {"outcome": "duplicate", "ticket": self.ticket, "runbook": rb["id"] if rb else None, "reason": "open incident already exists"}
         self.note(f"FURY detected alarm {a['name']} ({a['description']}). Runbook: {rb['id'] + ' ' + rb['title'] if rb else 'NONE FOUND'}.\nEvidence:\n" + "\n".join(ev_line(e) for e in ev))
         if not rb: return self.escalate(a, self.ticket, rb, "no runbook covers this issue", ev)
         before, acted, approval = ev, False, None
         for s in steps[len(pre):]:
             if s["type"] == "decide":
-                ok, why = decide(rb["id"], before); self.note(f"Decision ({s['n']}): {why}.")
+                with telemetry.span("agent.decision", runbook=rb["id"], step=s["n"]) as dsp:
+                    ok, why = decide(rb["id"], before)
+                    telemetry.set_attr(dsp, "proceed", bool(ok)); telemetry.set_attr(dsp, "reason", why)
+                self.note(f"Decision ({s['n']}): {why}.")
                 if not ok: return self.escalate(a, self.ticket, rb, why, before)
             elif s["type"] == "action":
                 self.note(f"Requesting SRE Admin approval for {s['tool']}({s['params'].get('target')}).")
@@ -179,6 +206,7 @@ class Triage(Agent):
                     notes = (f"Issue: {a['description']} on {a['instance']}.\nRunbook: {rb['id']}.\nBefore: " + "; ".join(ev_line(e) for e in before[:1]) +
                              f"\nAction: {s_action(steps)} approved by {approval['approver']} at {approval['approved_at']}.\nAfter: {ev_line(after[0])}\nResolved by FURY; service verified healthy.")
                     self.ok("resolve", {"ticket": self.ticket, "notes": notes})
+                    telemetry.counter("triage.outcome", outcome="resolved", runbook=rb["id"])
                     return {"outcome": "resolved", "ticket": self.ticket, "runbook": rb["id"], "reason": "verified healthy after approved fix"}
                 return self.escalate(a, self.ticket, rb, "verification failed after the fix", before + after)
             elif s["type"] == "escalate": break
@@ -195,6 +223,7 @@ class Triage(Agent):
             except AgentError as e: self.warnings.append(str(e))
         try: self.ok("notify_escalation", {"ticket": ticket or "(no ticket)", "team": team, "reason": reason, "summary": summary})
         except AgentError as e: self.warnings.append(str(e))
+        telemetry.counter("triage.outcome", outcome="escalated", team=team)
         return {"outcome": "escalated", "ticket": ticket, "runbook": rb["id"] if rb else None, "reason": reason, "team": team}
 
 def s_action(steps): return next((f"{s['tool']}({s['params'].get('target')})" for s in steps if s["type"] == "action"), "")
