@@ -3,7 +3,7 @@ Not the full A2A spec: same ideas (card, task, states incl. input-required), sim
 import contextvars, json, os, time, uuid, urllib.request
 from collections import Counter
 from dataclasses import dataclass, field
-from . import telemetry
+from . import contracts, telemetry
 
 STATES = ("submitted", "working", "input-required", "completed", "failed")
 
@@ -123,8 +123,12 @@ class Bus:
     def _send(self, budget, entry, sender, skill, name, task):
         t0 = time.perf_counter()
         with telemetry.span("agent.hop", skill=skill, agent_from=sender, agent_to=name) as sp:
-            why = None if (entry or budget is None) else budget.admit(name, skill)
-            if why:
+            bad = contracts.validate(skill, task.input)
+            why = None if (bad or entry or budget is None) else budget.admit(name, skill)
+            if bad:
+                task.state, task.error = "failed", f"invalid input for {skill}: {bad}"
+                telemetry.set_attr(sp, "contract_violation", bad); telemetry.counter("contract.violation", skill=skill)
+            elif why:
                 task.state, task.error = "failed", f"budget exceeded: {why}"
                 telemetry.set_attr(sp, "budget_exceeded", why); telemetry.counter("budget.exceeded", agent=name, skill=skill)
             else:

@@ -41,7 +41,9 @@ class Diagnostic(Agent):
                 res = getattr(self.t, s["tool"])(**s.get("params", {}))
                 if isinstance(res, dict) and "healthy" in res: telemetry.set_attr(sp, "healthy", bool(res["healthy"]))
             telemetry.counter("tool.call.count", tool=s["tool"], mode="read")
-            out.append({"tool": s["tool"], "params": s.get("params", {}), "result": res})
+            out.append({"tool": s["tool"], "params": s.get("params", {}), "result": res, "mode": "read",
+                        "observed_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "evidence_id": f"E{len(out) + 1}",
+                        "healthy": res.get("healthy") if isinstance(res, dict) else None})
         return {"evidence": out}
 
 # ---------------- Remediation: the ONLY agent that can change the server ----------------
