@@ -13,12 +13,12 @@ class ActView:
     def __init__(self, t): self._t = t
     def act(self, action, target): return self._t.act(action, target)
 
-def build(target=None, snow=None, chat=None, approvers=("U0CAZH32V2T",), rb_dir=None, ttl=600, read_target=None, act_target=None):
+def build(target=None, snow=None, chat=None, approvers=("U0CAZH32V2T",), rb_dir=None, ttl=600, read_target=None, act_target=None, store=None):
     if read_target is None and act_target is None: target = target or FakeTarget(); read_target = act_target = target
     snow = snow or FakeSnow()
     chat = chat if chat is not None else FakeChat()
     bus = Bus(); rbs = RB.load(rb_dir or Path(__file__).resolve().parent.parent / "runbooks")
-    for a in (Knowledge(rbs), Diagnostic(ReadOnlyView(read_target)), Remediation(bus, ActView(act_target)), ITSM(snow), Comms(chat, approvers, ttl=ttl)):
+    for a in (Knowledge(rbs), Diagnostic(ReadOnlyView(read_target)), Remediation(bus, ActView(act_target), store=store), ITSM(snow), Comms(chat, approvers, ttl=ttl)):
         bus.register(a)
     triage = bus.register(Triage(bus))
     return bus, triage, dict(target=read_target if read_target is act_target else None, snow=snow, chat=chat, read_target=read_target, act_target=act_target)

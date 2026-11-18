@@ -46,8 +46,12 @@ def main():
         kw = dict(read_target=AwsReadTarget(diag, region, inst), act_target=AwsActTarget(remed, region, inst))
     else:
         fake_target = FakeTarget(); kw = dict(target=fake_target)
-    bus, triage, env = system.build(snow=snow, chat=chat, approvers=approvers, **kw)
-    ctx = Ctx(bus, triage, snow, chat, inst, fake_target)
+    store = None
+    if os.getenv("FURY_DB"):   # opt-in durable state, e.g. FURY_DB=fury.db
+        from fury.store import Store
+        store = Store(os.environ["FURY_DB"])
+    bus, triage, env = system.build(snow=snow, chat=chat, approvers=approvers, store=store, **kw)
+    ctx = Ctx(bus, triage, snow, chat, inst, fake_target, store=store)
     if diag:
         from fury.aws import AlarmPoller
         poller = AlarmPoller(diag.client("cloudwatch", region_name=region), inst, lambda a: ctx.submit("handle_alert", a, "cloudwatch", a["description"]),

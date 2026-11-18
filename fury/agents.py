@@ -46,13 +46,14 @@ class Diagnostic(Agent):
 # ---------------- Remediation: the ONLY agent that can change the server ----------------
 class Remediation(Agent):
     name, description = "remediation", "Runs catalog actions after a verified human approval"
-    def __init__(self, bus, act_target):
-        self.bus, self.t, self.skills, self.done = bus, act_target, {"remediate": self.remediate}, {}
+    def __init__(self, bus, act_target, store=None):
+        self.bus, self.t, self.skills, self.done, self.store = bus, act_target, {"remediate": self.remediate}, {}, store
+    def _attempts(self, tk, a): return self.store.attempts(tk, a) if self.store else self.done.get((tk, a), 0)
     def remediate(self, task):
         i = task.input; a, tgt, tk = i["action"], i["target"], i["ticket"]
         if a not in ACTION_CATALOG or tgt not in ACTION_CATALOG[a]:
             raise PermissionError(f"action {a}({tgt}) is not in the approved catalog")
-        if self.done.get((tk, a), 0) >= 1: raise PermissionError(f"{a} already run once for {tk}; second attempt must go to L2")
+        if self._attempts(tk, a) >= 1: raise PermissionError(f"{a} already run once for {tk}; second attempt must go to L2")
         task.state = "input-required"
         ap = self.bus.send(self.name, "request_approval", {"action": a, "target": tgt, "ticket": tk, "summary": i["summary"]})
         if ap.state != "completed": raise PermissionError(f"approval not granted: {ap.error}")
@@ -63,6 +64,7 @@ class Remediation(Agent):
             result = self.t.act(a, tgt)
         telemetry.counter("tool.call.count", tool=a, mode="act")
         self.done[(tk, a)] = self.done.get((tk, a), 0) + 1
+        if self.store: self.store.record_attempt(tk, a)
         return {"result": result, "approver": p["approver"], "approved_at": time.strftime("%Y-%m-%d %H:%M:%S")}
 
 # ---------------- ITSM: owns ServiceNow ----------------

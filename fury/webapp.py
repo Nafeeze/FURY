@@ -113,25 +113,31 @@ def howto_reply(ctx, text):
     return f"Runbook {rb.id}: {rb.title}\n{steps}\nI only run the fix after the SRE Admin approves it on Slack."
 
 class Ctx:
-    def __init__(self, bus, triage, snow, chat, instance, demo_target=None):
+    def __init__(self, bus, triage, snow, chat, instance, demo_target=None, store=None):
         self.bus, self.triage, self.snow, self.chat, self.instance, self.demo_target = bus, triage, snow, chat, instance, demo_target
-        self.runs, self.lock, self.poller = {}, threading.Lock(), None
+        self.runs, self.lock, self.poller, self.store = {}, threading.Lock(), None, store
+        if store:
+            store.recover_interrupted(); self.runs.update(store.load_runs())
+    def save(self, run):
+        if self.store: self.store.save_run(run)
     def submit(self, skill, data, source, label, on_complete=None):
         rid = uuid.uuid4().hex[:8]
         run = self.runs[rid] = {"id": rid, "label": label, "source": source, "state": "queued", "start": None, "end": None, "out": None, "at": time.strftime("%H:%M:%S")}
+        self.save(run)
         snap = telemetry.capture()   # the worker thread continues the caller's trace (chat request or alarm)
         def work():
             try:
                 with telemetry.attach(snap), telemetry.span("run", run_id=rid, source=source, skill=skill, label=label) as sp:
                     run["trace_id"] = sp["trace_id"]
                     with self.lock:
-                        run.update(state="running", start=len(self.bus.trace))
+                        run.update(state="running", start=len(self.bus.trace)); self.save(run)
                         t = self.bus.send(source, skill, data, to="triage")
                         run.update(state="done" if t.state == "completed" else "error", end=len(self.bus.trace),
                                    out=t.output if t.state == "completed" else {"outcome": "error", "reason": t.error})
                         o = (run["out"] or {}).get("outcome")
                         telemetry.set_attr(sp, "outcome", o); telemetry.set_attr(sp, "ticket", (run["out"] or {}).get("ticket"))
                         if run["state"] == "error": sp["ok"], sp["error"] = False, telemetry.redact(t.error, 120)
+                        self.save(run)
             finally:
                 if on_complete: on_complete()
         threading.Thread(target=work, daemon=True).start(); return rid
@@ -140,6 +146,7 @@ class Ctx:
         rid = uuid.uuid4().hex[:8]
         self.runs[rid] = {"id": rid, "label": label, "source": "chat", "state": "done", "start": None, "end": None,
                           "out": {"outcome": "reply", "message": message}, "at": time.strftime("%H:%M:%S")}
+        self.save(self.runs[rid])
         return rid
     def view(self, run):
         s, e = run["start"], run["end"]
