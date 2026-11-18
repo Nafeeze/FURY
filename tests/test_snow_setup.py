@@ -113,6 +113,17 @@ class SnowSetupTests(unittest.TestCase):
             out = run(self.ITIL, configure(SCRIPT, dry=False, password=pw))
             self.assertIn("STOP: set SERVICE_PASSWORD", out); self.assertIn("users=0", out)
 
+    def test_password_not_required_when_it_will_not_be_used(self):
+        pre = self.ITIL + "DB.sys_user.push({sys_id:'u1', user_name:'fury_integration', active:'1', web_service_access_only:'0', locked_out:'0', password_needs_reset:'0'});"
+        out = run(pre, configure(SCRIPT, dry=False, password="CHANGE-ME-before-running", reset="false"))
+        self.assertNotIn("STOP", out); self.assertIn("pwset=0", out); self.assertIn("fixed web_service_access_only", out)
+
+    def test_reset_password_true_still_demands_a_strong_password(self):
+        pre = self.ITIL + "DB.sys_user.push({sys_id:'u1', user_name:'fury_integration', active:'1', web_service_access_only:'1', locked_out:'0', password_needs_reset:'0'});"
+        for pw in ("n=al:-IU37", "CHANGE-ME-before-running"):
+            out = run(pre, configure(SCRIPT, dry=False, password=pw, reset="true"))
+            self.assertIn("STOP: set SERVICE_PASSWORD", out); self.assertIn("pwset=0", out)
+
     def test_non_admin_is_refused(self):
         out = run("ADMIN = false;" + self.ITIL, configure(SCRIPT, dry=False))
         self.assertIn("STOP: run this as a user with the admin role", out); self.assertIn("users=0", out)

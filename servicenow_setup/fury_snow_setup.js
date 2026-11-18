@@ -59,7 +59,9 @@
         gs.print('STOP: run this as a user with the admin role.');
         return;
     }
-    if (!DRY_RUN && (!SERVICE_PASSWORD || SERVICE_PASSWORD === 'CHANGE-ME-before-running' || SERVICE_PASSWORD.length < 12)) {
+    // The password is only applied when the user must be CREATED or RESET_PASSWORD is true. Demand a strong one only then.
+    var passwordWillBeUsed = !findOne('sys_user', 'user_name', SERVICE_USER) || RESET_PASSWORD;
+    if (!DRY_RUN && passwordWillBeUsed && (!SERVICE_PASSWORD || SERVICE_PASSWORD === 'CHANGE-ME-before-running' || SERVICE_PASSWORD.length < 12)) {
         gs.print('STOP: set SERVICE_PASSWORD to a strong password (12+ characters) before running with DRY_RUN = false.');
         return;
     }
