@@ -6,6 +6,9 @@ applies_to: windows-ec2
 symptoms: high cpu, cpu utilization, slow responses, runaway process, process stuck at 100 percent
 owner_team: SRE-Platform
 escalate_to: SRE-Platform L2
+version: 1.0
+status: active
+updated_at: 2026-11-18
 ---
 # AWS-CPU-001: Runaway process consuming CPU
 

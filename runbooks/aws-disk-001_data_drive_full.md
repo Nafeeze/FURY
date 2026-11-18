@@ -6,6 +6,9 @@ applies_to: windows-ec2
 symptoms: disk full, no space left on device, drive F usage, volume almost full, disk space
 owner_team: SRE-Platform
 escalate_to: SRE-Platform L2
+version: 1.0
+status: active
+updated_at: 2026-11-18
 ---
 # AWS-DISK-001: Data drive F: above 85%
 

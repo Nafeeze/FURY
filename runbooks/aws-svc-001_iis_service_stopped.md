@@ -6,6 +6,9 @@ applies_to: windows-ec2
 symptoms: service stopped, W3SVC, IIS down, web service not running, website down, service not responding
 owner_team: SRE-Platform
 escalate_to: SRE-Platform L2
+version: 1.0
+status: active
+updated_at: 2026-11-18
 ---
 # AWS-SVC-001: IIS service W3SVC stopped
 
