@@ -134,6 +134,14 @@ Note: `--instance` is required for `faults.py`.
 2. **Request an instance** (latest release is fine). When ready, you get the URL (`https://devXXXXX.service-now.com`), username `admin`, and an admin password. Save them.
 3. **Important:** PDIs hibernate after inactivity and can be reclaimed if unused. Log in to the developer portal before the demo and click Wake up if needed. Log in at least weekly, and **do not wait until the morning of the demo**. This is likely why the previous instance went offline.
 
+### 2.1b Automatic alternative to 2.2 to 2.4 (recommended)
+`servicenow_setup/fury_snow_setup.js` creates the group `SRE-Platform L2`, the `fury_integration` user (web service access only, role `itil`) and optional L2 members, and prints the resolution codes. It is idempotent.
+1. In the instance: **All > System Definition > Scripts - Background** (scope Global).
+2. Paste the file. First run as-is (`DRY_RUN = true`) and read the output.
+3. Set a strong `SERVICE_PASSWORD` (12+ chars) in the pasted copy only (never commit it), set `DRY_RUN = false`, run again.
+4. Copy a resolution code from the printed list into `SNOW_CLOSE_CODE`, then run the curl test in 2.5.
+Its logic is unit-tested against a mock (`tests/test_snow_setup.py`) but has not run on a real instance yet: trust the DRY_RUN output, and if a field name differs on your release, fall back to the manual steps below.
+
 ### 2.2 Create the integration user (5 min)
 1. In the instance, **All > User Administration > Users > New**.
 2. User ID: `fury_integration`. Set a strong password.
