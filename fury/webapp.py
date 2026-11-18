@@ -230,6 +230,15 @@ def create_app(ctx, demo=False):
     def incident(n):
         try: return jsonify(ok=True, notes=ctx.snow.get_notes(n))
         except Exception as e: return jsonify(ok=False, error=str(e), notes=[])
+    @app.get("/api/health")
+    def health():
+        """Per-integration health: ok / degraded / open (circuit breaker). Unwrapped (fake or direct) integrations report 'unmonitored'."""
+        out = []
+        for label, comp in (("servicenow", ctx.snow), ("chat", ctx.chat), ("server", ctx.demo_target)):
+            h = getattr(comp, "health", None) if comp is not None else None
+            out.append(h() if callable(h) else {"name": label, "state": "unmonitored"})
+        worst = "open" if any(x["state"] == "open" for x in out) else "degraded" if any(x["state"] == "degraded" for x in out) else "ok"
+        return jsonify(status=worst, integrations=out, store=bool(ctx.store))
     @app.get("/api/approvals")
     def approvals(): return jsonify(ctx.chat.pending())
     @app.get("/api/approvals/history")

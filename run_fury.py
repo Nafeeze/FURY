@@ -22,7 +22,10 @@ def main():
     from fury.adapters import FakeTarget, FakeSnow, FakeChat, SnowClient
     kw, poller, fake_target = {}, None, None
     # ---- ServiceNow ----
-    snow = SnowClient(os.environ["SNOW_URL"], os.environ["SNOW_USER"], os.environ["SNOW_PASSWORD"]) if mode["snow"] == "real" else FakeSnow()
+    if mode["snow"] == "real":
+        from fury.resilience import Resilient, SNOW_READS
+        snow = Resilient(SnowClient(os.environ["SNOW_URL"], os.environ["SNOW_USER"], os.environ["SNOW_PASSWORD"]), "servicenow", SNOW_READS)
+    else: snow = FakeSnow()
     # ---- chat / approvals ----
     if mode["chat"] == "real":
         from fury.slack_chat import SlackChat
