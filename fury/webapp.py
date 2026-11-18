@@ -2,7 +2,7 @@
 they go to the SRE Admin on Slack (a different person), the UI only shows that one is pending."""
 import hashlib, json, os, re, threading, time, uuid
 from pathlib import Path
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, g, jsonify, request, send_from_directory
 from . import audit as AUD, retrieval, runbooks as RB, slo
 from . import llm as LLM
 from . import telemetry
@@ -166,9 +166,17 @@ class Ctx:
                  outcome=(run["out"] or {}).get("outcome"), message=final_message(run["out"]) if run["out"] else None, waiting_approval=bool(self.chat.pending()) and run["state"] == "running")
         return d
 
-def create_app(ctx, demo=False):
+def create_app(ctx, demo=False, auth=None):
     app = Flask(__name__, static_folder=None); ui = Path(__file__).resolve().parent.parent / "ui"
     session_policy = _ChatSessionPolicy()
+    if auth is not None:
+        auth.audit = auth.audit or ctx.audit
+        @app.before_request
+        def _gate():
+            ok, status, user, msg = auth.check(request.method, request.path, request.headers.get("Authorization"), request.remote_addr)
+            g.user = user["name"] if user else None
+            if not ok: return jsonify(error=msg), status
+    def actor(session_id): return getattr(g, "user", None) or session_ref(session_id)
     def link(rid, root, session_id):
         run = ctx.runs[rid]; run["trace_id"] = root["trace_id"]; run["session"] = session_ref(session_id); ctx.save(run)
     @app.get("/")
@@ -195,11 +203,11 @@ def create_app(ctx, demo=False):
                         telemetry.counter("chat.mode_check.error", error=type(exc).__name__)
                         chat_mode = "readonly"
                     if chat_mode != "full":
-                        ctx.audit.record(session_ref(session_id), "chat.report", "denied", reason="read-only mode")
+                        ctx.audit.record(actor(session_id), "chat.report", "denied", reason="read-only mode")
                         rid = ctx.answer(text[:60], REPORT_DISABLED)
                         link(rid, root, session_id)
                         return jsonify(run=rid)
-                    ctx.audit.record(session_ref(session_id), "chat.report", "allowed", text_len=len(text))
+                    ctx.audit.record(actor(session_id), "chat.report", "allowed", text_len=len(text))
                     rid = ctx.submit("handle_report", {"text": text, "instance": ctx.instance}, "chat", text[:60],
                                      on_complete=lambda: session_policy.finish(session_id))
                     handed_off = True

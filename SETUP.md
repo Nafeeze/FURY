@@ -40,3 +40,12 @@ In .env set any of FURY_SNOW / FURY_TARGET / FURY_CHAT to `fake` while the other
     FURY_SNOW=real
     FURY_TARGET=fake      (UI shows buttons to break the fake server)
     FURY_CHAT=fake        (auto-approves after 5 seconds)
+
+## G. Access control, audit and operations (required before any real deployment)
+    python -m fury.auth new alice admin        # prints a token ONCE + the hashed entry
+    # put the entry in .env:  FURY_API_TOKENS=alice:admin:<hash>   (comma-separate several users)
+Roles: viewer = read-only, operator = viewer + chat/report, admin = everything (audit log, approval history, demo controls).
+With real integrations FURY refuses to start without FURY_API_TOKENS (override: FURY_AUTH=off). The UI asks for the token on first use.
+Endpoints (need a token): /api/health, /api/obs/slo, /api/audit (admin), /api/approvals/history (admin), /api/obs/session/<ref>.
+Verify the audit log has not been edited:  python -c "from fury.audit import Audit; print(Audit.verify_file('audit.jsonl'))"
+Durable state: FURY_DB=fury.db   Audit file: FURY_AUDIT_LOG=audit.jsonl   Retention: FURY_RETENTION_DAYS=90

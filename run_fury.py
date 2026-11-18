@@ -60,7 +60,15 @@ def main():
         poller = AlarmPoller(diag.client("cloudwatch", region_name=region), inst, lambda a: ctx.submit("handle_alert", a, "cloudwatch", a["description"]),
                              interval=int(os.getenv("POLL_SECONDS", "30")))
         ctx.poller = poller; threading.Thread(target=poller.run_forever, daemon=True).start()
-    app = create_app(ctx, demo=fake_target is not None)
+    from fury import auth as AUTH
+    try: api_auth = AUTH.from_env(ctx.audit)
+    except ValueError as e: sys.exit(str(e))
+    if api_auth is None and not (demo or all(v == "fake" for v in mode.values())) and os.getenv("FURY_AUTH", "on").lower() != "off":
+        sys.exit("Refusing to start with real integrations and no API authentication."
+                 + chr(10) + "Create a token:  python -m fury.auth new <name> admin   then set FURY_API_TOKENS in .env"
+                 + chr(10) + "(or set FURY_AUTH=off to run unauthenticated on a trusted machine, at your own risk).")
+    app = create_app(ctx, demo=fake_target is not None, auth=api_auth)
+    print("API auth: " + ("ON (" + ", ".join(e["name"] + "/" + e["role"] for e in api_auth.entries) + ")" if api_auth else "OFF"))
     print(f"FURY running  snow={mode['snow']}  server={mode['target']}  chat={mode['chat']}  -> http://127.0.0.1:8080")
     app.run(host="127.0.0.1", port=8080, threaded=True)
 
