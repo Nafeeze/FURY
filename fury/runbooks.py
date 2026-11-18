@@ -16,6 +16,7 @@ class Runbook:
     id: str; title: str; kind: str; symptoms: str; owner_team: str; escalate_to: str; steps: list
     # Provenance / lifecycle (optional in the file; see docs). status: active | draft | retired. Only active runbooks are retrievable.
     version: str = "1"; status: str = "active"; updated_at: str = ""; source: str = ""; content_hash: str = ""; indexed_at: str = ""
+    access: tuple = ("all",)   # roles allowed to retrieve this runbook; "all" = everyone
     def tokens(self): return tokens(self.symptoms + " " + self.title)
     def citation(self):
         """Short, stable reference to exactly what was used: id, version, last update."""
@@ -23,7 +24,7 @@ class Runbook:
     def as_dict(self):
         return {"id": self.id, "title": self.title, "owner_team": self.owner_team, "escalate_to": self.escalate_to,
                 "version": self.version, "status": self.status, "updated_at": self.updated_at, "source": self.source,
-                "content_hash": self.content_hash, "indexed_at": self.indexed_at, "citation": self.citation(),
+                "content_hash": self.content_hash, "indexed_at": self.indexed_at, "access": list(self.access), "citation": self.citation(),
                 "steps": [s.as_dict() for s in self.steps]}
 
 def _params(s):
@@ -52,7 +53,7 @@ def parse(text, source=""):
     return Runbook(fm.get("id", ""), fm.get("title", ""), fm.get("kind", "alert"), fm.get("symptoms", ""),
                    fm.get("owner_team", ""), fm.get("escalate_to", ""), steps,
                    version=fm.get("version", "1"), status=fm.get("status", "active").lower(), updated_at=fm.get("updated_at", ""),
-                   source=source, content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest()[:12], indexed_at=time.strftime("%Y-%m-%d %H:%M:%S"))
+                   access=tuple(x.strip().lower() for x in fm.get("access", "all").split(",") if x.strip()) or ("all",), source=source, content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest()[:12], indexed_at=time.strftime("%Y-%m-%d %H:%M:%S"))
 
 def load(directory):
     return [parse(p.read_text(encoding="utf-8"), source=p.name) for p in sorted(Path(directory).glob("*.md"))]

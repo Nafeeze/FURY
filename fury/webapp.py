@@ -3,7 +3,7 @@ they go to the SRE Admin on Slack (a different person), the UI only shows that o
 import hashlib, json, os, re, threading, time, uuid
 from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
-from . import runbooks as RB
+from . import retrieval, runbooks as RB
 from . import llm as LLM
 from . import telemetry
 from .agents import REPORT_KEYWORDS
@@ -112,7 +112,11 @@ def incident_list(ctx):
     return f"{len(rows)} open incident(s):\n" + "\n".join(f"- {r['number']}: {r['short_description']} ({STATE.get(str(r['state']), r['state'])}, {r.get('assignment_group') or 'unassigned'})" for r in rows[:5])
 
 def howto_reply(ctx, text):
-    rb, _ = RB.match(ctx.bus.agents["knowledge"].rbs, text)
+    rbs = ctx.bus.agents["knowledge"].rbs
+    rb, _ = RB.match(rbs, text)
+    if not rb:   # fall back to governed retrieval (fuzzy + lexical); it abstains when nothing supports the question
+        hits = retrieval.search(rbs, text, k=1)
+        rb = next((r for r in rbs if hits and r.id == hits[0]["runbook"]), None)
     if not rb: return "I do not have a runbook for that. If something is actually broken, describe the symptom and I will check it."
     steps = "\n".join(f"{s.n}. {s.text}" for s in rb.steps)
     return f"Runbook {rb.citation()}: {rb.title}\n{steps}\nSource: {rb.source} (owner {rb.owner_team}, content {rb.content_hash}).\nI only run the fix after the SRE Admin approves it on Slack."
