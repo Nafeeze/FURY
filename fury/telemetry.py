@@ -294,8 +294,8 @@ def backend():
 # ------------------------------------------------------------ read models
 # Everything below feeds the dashboard. It reads the local recorder only and
 # returns metadata (names, ids, durations, enums), never raw prompt text.
-def traces(limit=30):
-    """One row per trace, newest first."""
+def traces(limit=30, session=None):
+    """One row per trace, newest first. `session` filters to one chat conversation (see webapp.session_ref)."""
     by = {}
     for sp in _fallback.snapshot_spans():
         by.setdefault(sp["trace_id"], []).append(sp)
@@ -310,8 +310,9 @@ def traces(limit=30):
                      "spans": len(sps), "errors": len(failed),
                      "source": (run_sp or root)["attrs"].get("source"),
                      "label": (run_sp or root)["attrs"].get("label"),
-                     "intent": root["attrs"].get("intent"),
+                     "intent": root["attrs"].get("intent"), "session": root["attrs"].get("session"),
                      "outcome": (run_sp["attrs"].get("outcome") if run_sp else None)})
+    if session: rows = [r for r in rows if r["session"] == session]
     rows.sort(key=lambda r: r["start"], reverse=True)
     return rows[:limit]
 

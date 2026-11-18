@@ -1,6 +1,6 @@
 """Web UI + API. Engineers chat here; alarms from CloudWatch also show up as runs. Approvals are NOT done here:
 they go to the SRE Admin on Slack (a different person), the UI only shows that one is pending."""
-import json, os, re, threading, time, uuid
+import hashlib, json, os, re, threading, time, uuid
 from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 from . import runbooks as RB
@@ -64,6 +64,11 @@ def classify(text):
     if metric and signal: return "report"
     if metric or signal: return "clarify"
     return "off_topic"
+
+def session_ref(session_id):
+    """Short one-way reference for a chat session: correlates runs and traces from one conversation
+    without the raw client-side session id appearing in telemetry."""
+    return hashlib.sha256(str(session_id).encode("utf-8")).hexdigest()[:10]
 
 class _ChatSessionPolicy:
     def __init__(self, idle_ttl=SESSION_IDLE_TTL, clock=time.monotonic):
@@ -151,7 +156,7 @@ class Ctx:
     def view(self, run):
         s, e = run["start"], run["end"]
         steps = [] if s is None else [{"text": STEP_TEXT[x["skill"]], "state": x["state"]} for x in self.bus.trace[s:e] if STEP_TEXT.get(x["skill"])]
-        d = {k: run[k] for k in ("id", "label", "source", "state", "at")}; d["trace_id"] = run.get("trace_id")
+        d = {k: run[k] for k in ("id", "label", "source", "state", "at")}; d["trace_id"] = run.get("trace_id"); d["session"] = run.get("session")
         d.update(steps=steps, ticket=(run["out"] or {}).get("ticket") or (self.triage.ticket if run["state"] == "running" else None),
                  outcome=(run["out"] or {}).get("outcome"), message=final_message(run["out"]) if run["out"] else None, waiting_approval=bool(self.chat.pending()) and run["state"] == "running")
         return d
@@ -159,6 +164,8 @@ class Ctx:
 def create_app(ctx, demo=False):
     app = Flask(__name__, static_folder=None); ui = Path(__file__).resolve().parent.parent / "ui"
     session_policy = _ChatSessionPolicy()
+    def link(rid, root, session_id):
+        run = ctx.runs[rid]; run["trace_id"] = root["trace_id"]; run["session"] = session_ref(session_id); ctx.save(run)
     @app.get("/")
     def index(): return send_from_directory(ui, "index.html")
     @app.post("/api/chat")
@@ -171,7 +178,7 @@ def create_app(ctx, demo=False):
         handed_off = False
         try:
             # One root span per chat request. Only shapes are recorded (length, intent), never the message itself.
-            with telemetry.span("chat.request", source="chat", text_len=len(text)) as root:
+            with telemetry.span("chat.request", source="chat", text_len=len(text), session=session_ref(session_id)) as root:
                 verdict = LLM.classify(text, session_id=session_id)  # None if FURY_LLM is off, or on any failure: falls back to rules below
                 intent = verdict["intent"] if verdict else classify(text)
                 telemetry.set_attr(root, "intent", intent); telemetry.set_attr(root, "classifier", "llm" if verdict else "rules")
@@ -184,12 +191,12 @@ def create_app(ctx, demo=False):
                         chat_mode = "readonly"
                     if chat_mode != "full":
                         rid = ctx.answer(text[:60], REPORT_DISABLED)
-                        ctx.runs[rid]["trace_id"] = root["trace_id"]
+                        link(rid, root, session_id)
                         return jsonify(run=rid)
                     rid = ctx.submit("handle_report", {"text": text, "instance": ctx.instance}, "chat", text[:60],
                                      on_complete=lambda: session_policy.finish(session_id))
                     handed_off = True
-                    ctx.runs[rid]["trace_id"] = root["trace_id"]
+                    link(rid, root, session_id)
                     return jsonify(run=rid)
                 if verdict and verdict.get("reply") and intent in ("help", "greeting", "off_topic", "clarify", "howto"):
                     reply = verdict["reply"]
@@ -197,7 +204,7 @@ def create_app(ctx, demo=False):
                     reply = {"greeting": "You are welcome." if re.match(r"^(thanks|thank you|thx)", text.strip().lower()) else "Goodbye." if text.strip().lower().startswith("bye") else "Hello. Tell me what is wrong with the server, or ask about an incident.", "help": HELP_TEXT, "clarify": CLARIFY,
                              "off_topic": OFF_TOPIC}.get(intent) or (incident_status(ctx, text) if intent == "incident_status" else incident_list(ctx) if intent == "incident_list" else howto_reply(ctx, text))
                 rid = ctx.answer(text[:60], reply)
-                ctx.runs[rid]["trace_id"] = root["trace_id"]
+                link(rid, root, session_id)
                 return jsonify(run=rid)
         finally:
             if not handed_off:
@@ -237,6 +244,11 @@ def create_app(ctx, demo=False):
         return jsonify(backend=telemetry.backend(), otel_endpoint=bool(os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")), llm_on=os.getenv("FURY_LLM", "off").lower() == "on",
                        kpis=telemetry.kpis(), signals=telemetry.signals(), traces=telemetry.traces(25), metrics=telemetry.summary(),
                        retention="in memory, newest 2000 spans, cleared on restart", redaction=os.getenv("FURY_TELEMETRY_RAW", "off").lower() != "on")
+    @app.get("/api/obs/session/<ref>")
+    def obs_session(ref):
+        """Everything one conversation did: its runs and the traces they produced (metadata only)."""
+        runs = [ctx.view(r) for r in sorted(ctx.runs.values(), key=lambda r: r["at"]) if r.get("session") == ref]
+        return jsonify(session=ref, runs=runs, traces=telemetry.traces(100, session=ref))
     @app.get("/api/obs/trace/<tid>")
     def obs_trace(tid):
         t = telemetry.trace(tid)
