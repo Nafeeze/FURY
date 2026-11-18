@@ -183,7 +183,7 @@ class Triage(Agent):
             self.note("Alarm fired again while this incident is open; no new ticket created.")
             telemetry.counter("triage.outcome", outcome="duplicate")
             return {"outcome": "duplicate", "ticket": self.ticket, "runbook": rb["id"] if rb else None, "reason": "open incident already exists"}
-        self.note(f"FURY detected alarm {a['name']} ({a['description']}). Runbook: {rb['id'] + ' ' + rb['title'] if rb else 'NONE FOUND'}.\nEvidence:\n" + "\n".join(ev_line(e) for e in ev))
+        self.note(f"FURY detected alarm {a['name']} ({a['description']}). Runbook: {rb['citation'] + ' ' + rb['title'] if rb else 'NONE FOUND'}.\nEvidence:\n" + "\n".join(ev_line(e) for e in ev))
         if not rb: return self.escalate(a, self.ticket, rb, "no runbook covers this issue", ev)
         before, acted, approval = ev, False, None
         for s in steps[len(pre):]:

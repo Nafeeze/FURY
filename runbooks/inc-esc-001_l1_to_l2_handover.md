@@ -5,6 +5,9 @@ kind: procedure
 symptoms: escalate handover no runbook fix failed
 owner_team: SRE
 escalate_to: SRE-Platform L2
+version: 1.0
+status: active
+updated_at: 2026-11-18
 ---
 # INC-ESC-001: L1 to L2 handover
 Used when there is no matching runbook, a step failed, verification failed, or the culprit is outside the allowed actions.

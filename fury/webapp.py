@@ -110,7 +110,7 @@ def howto_reply(ctx, text):
     rb, _ = RB.match(ctx.bus.agents["knowledge"].rbs, text)
     if not rb: return "I do not have a runbook for that. If something is actually broken, describe the symptom and I will check it."
     steps = "\n".join(f"{s.n}. {s.text}" for s in rb.steps)
-    return f"Runbook {rb.id}: {rb.title}\n{steps}\nI only run the fix after the SRE Admin approves it on Slack."
+    return f"Runbook {rb.citation()}: {rb.title}\n{steps}\nSource: {rb.source} (owner {rb.owner_team}, content {rb.content_hash}).\nI only run the fix after the SRE Admin approves it on Slack."
 
 class Ctx:
     def __init__(self, bus, triage, snow, chat, instance, demo_target=None, store=None):
