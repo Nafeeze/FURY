@@ -181,6 +181,10 @@ class _Recorder:
         with self._lock:
             return list(self.spans)
 
+    def clear(self):
+        with self._lock:
+            self.spans, self.counters, self.histograms = [], {}, {}
+
     def raw_counters(self):
         with self._lock:
             return [(n, dict(l), v) for (n, l), v in self.counters.items()]
@@ -191,6 +195,11 @@ class _Recorder:
 
 
 _fallback = _Recorder()
+
+
+def reset():
+    """Clear the in-process recorder (tests, or an operator starting a clean measurement window)."""
+    _fallback.clear()
 _otel = None  # set up lazily, only if FURY_OTEL=on and the SDK imports cleanly
 
 

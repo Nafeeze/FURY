@@ -79,5 +79,14 @@ class Store:
         keys = ("id", "ticket", "action", "target", "tier", "status", "approver", "detail", "requested_at", "decided_at", "finished_at")
         return [dict(zip(keys, r)) for r in rows]
 
+    def prune(self, days):
+        """Retention: delete runs and approval records older than `days`. Returns counts. days<=0 keeps everything."""
+        if days <= 0: return {"runs": 0, "approvals": 0}
+        with self._lock:
+            r = self._db.execute("DELETE FROM runs WHERE updated < julianday('now') - ?", (days,)).rowcount
+            a = self._db.execute("DELETE FROM approvals WHERE requested_at < datetime('now', ?)", (f"-{int(days)} days",)).rowcount
+            self._db.commit()
+        return {"runs": r, "approvals": a}
+
     def close(self):
         with self._lock: self._db.close()

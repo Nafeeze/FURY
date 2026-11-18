@@ -3,7 +3,7 @@ they go to the SRE Admin on Slack (a different person), the UI only shows that o
 import hashlib, json, os, re, threading, time, uuid
 from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
-from . import retrieval, runbooks as RB
+from . import audit as AUD, retrieval, runbooks as RB, slo
 from . import llm as LLM
 from . import telemetry
 from .agents import REPORT_KEYWORDS
@@ -122,11 +122,12 @@ def howto_reply(ctx, text):
     return f"Runbook {rb.citation()}: {rb.title}\n{steps}\nSource: {rb.source} (owner {rb.owner_team}, content {rb.content_hash}).\nI only run the fix after the SRE Admin approves it on Slack."
 
 class Ctx:
-    def __init__(self, bus, triage, snow, chat, instance, demo_target=None, store=None):
+    def __init__(self, bus, triage, snow, chat, instance, demo_target=None, store=None, audit=None):
         self.bus, self.triage, self.snow, self.chat, self.instance, self.demo_target = bus, triage, snow, chat, instance, demo_target
         self.runs, self.lock, self.poller, self.store = {}, threading.Lock(), None, store
+        self.audit = audit or AUD.Audit(os.getenv("FURY_AUDIT_LOG") or None)
         if store:
-            store.recover_interrupted(); self.runs.update(store.load_runs())
+            store.recover_interrupted(); store.prune(int(os.getenv("FURY_RETENTION_DAYS", "90"))); self.runs.update(store.load_runs())
     def save(self, run):
         if self.store: self.store.save_run(run)
     def submit(self, skill, data, source, label, on_complete=None):
@@ -194,9 +195,11 @@ def create_app(ctx, demo=False):
                         telemetry.counter("chat.mode_check.error", error=type(exc).__name__)
                         chat_mode = "readonly"
                     if chat_mode != "full":
+                        ctx.audit.record(session_ref(session_id), "chat.report", "denied", reason="read-only mode")
                         rid = ctx.answer(text[:60], REPORT_DISABLED)
                         link(rid, root, session_id)
                         return jsonify(run=rid)
+                    ctx.audit.record(session_ref(session_id), "chat.report", "allowed", text_len=len(text))
                     rid = ctx.submit("handle_report", {"text": text, "instance": ctx.instance}, "chat", text[:60],
                                      on_complete=lambda: session_policy.finish(session_id))
                     handed_off = True
@@ -230,6 +233,12 @@ def create_app(ctx, demo=False):
     def incident(n):
         try: return jsonify(ok=True, notes=ctx.snow.get_notes(n))
         except Exception as e: return jsonify(ok=False, error=str(e), notes=[])
+    @app.get("/api/audit")
+    def audit_log():
+        """Recent security-relevant events plus the chain head (compare against an externally stored head to detect tampering)."""
+        return jsonify(head=ctx.audit.head, events=ctx.audit.recent(100))
+    @app.get("/api/obs/slo")
+    def obs_slo(): return jsonify(slo.evaluate())
     @app.get("/api/health")
     def health():
         """Per-integration health: ok / degraded / open (circuit breaker). Unwrapped (fake or direct) integrations report 'unmonitored'."""

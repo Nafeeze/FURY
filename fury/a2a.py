@@ -80,6 +80,7 @@ class Budget:
     per_agent: dict = field(default_factory=lambda: dict(DEFAULT_AGENT_CALLS))
     hops: int = 0
     reserve_used: int = 0
+    refused: int = 0          # hops refused for being over budget (any > 0 means the workflow was stopped by its budget)
     calls: Counter = field(default_factory=Counter)
     started: float = field(default_factory=time.monotonic)
     @classmethod
@@ -118,6 +119,7 @@ class Bus:
             return self._send(budget, entry, sender, skill, name, task)
         finally:
             if entry:
+                if budget.refused: telemetry.counter("workflow.budget_stopped")
                 telemetry.histogram("workflow.hops", budget.hops + budget.reserve_used); telemetry.histogram("workflow.seconds", round(budget.elapsed(), 2))
                 _active.reset(token)
     def _send(self, budget, entry, sender, skill, name, task):
@@ -130,6 +132,7 @@ class Bus:
                 telemetry.set_attr(sp, "contract_violation", bad); telemetry.counter("contract.violation", skill=skill)
             elif why:
                 task.state, task.error = "failed", f"budget exceeded: {why}"
+                budget.refused += 1
                 telemetry.set_attr(sp, "budget_exceeded", why); telemetry.counter("budget.exceeded", agent=name, skill=skill)
             else:
                 self.agents[name].run(task)
