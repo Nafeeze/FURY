@@ -1,6 +1,7 @@
 """Minimal agent-to-agent layer (A2A-style): agent cards, skills, task states, discovery by skill.
 Not the full A2A spec: same ideas (card, task, states incl. input-required), simple JSON over HTTP."""
-import json, time, uuid, urllib.request
+import contextvars, json, os, time, uuid, urllib.request
+from collections import Counter
 from dataclasses import dataclass, field
 from . import telemetry
 
@@ -62,6 +63,42 @@ def serve(agent, port):
         return jsonify(id=t.id, state=t.state, output=t.output, error=t.error)
     return app
 
+# ---------------- Workflow budget: the orchestrator owns the limits, agents cannot bypass them ----------------
+# One Budget exists per top-level workflow (a send to "triage"). Every nested hop is charged to it, so delegation
+# cannot loop or fan out without bound. Limits are cooperative (checked before each hop, never by killing a thread:
+# abandoning a half-finished action would be less safe than finishing it).
+# Skills that tell a human something went wrong stay available after the budget runs out, up to a small reserve,
+# so "budget exceeded" always ends in an escalation and never in silence.
+DEFAULT_AGENT_CALLS = {"knowledge": 3, "diagnostic": 8, "remediation": 2, "comms": 4, "itsm": 20}
+RESERVE_SKILLS = {"add_note", "assign", "notify_escalation"}
+
+@dataclass
+class Budget:
+    max_hops: int = 40
+    max_seconds: float = 1800.0
+    max_reserve: int = 12
+    per_agent: dict = field(default_factory=lambda: dict(DEFAULT_AGENT_CALLS))
+    hops: int = 0
+    reserve_used: int = 0
+    calls: Counter = field(default_factory=Counter)
+    started: float = field(default_factory=time.monotonic)
+    @classmethod
+    def from_env(cls):
+        return cls(max_hops=int(os.getenv("FURY_MAX_WORKFLOW_HOPS", "40")), max_seconds=float(os.getenv("FURY_MAX_WORKFLOW_SECONDS", "1800")))
+    def elapsed(self): return time.monotonic() - self.started
+    def admit(self, agent, skill):
+        """Return None and charge the budget if this hop may run; otherwise return the reason it may not."""
+        if skill in RESERVE_SKILLS:
+            if self.reserve_used >= self.max_reserve: return "escalation reserve used up"
+            self.reserve_used += 1; return None
+        if self.hops >= self.max_hops: return f"hop limit {self.max_hops} reached"
+        if self.elapsed() > self.max_seconds: return f"time limit {int(self.max_seconds)}s reached"
+        cap = self.per_agent.get(agent)
+        if cap is not None and self.calls[agent] >= cap: return f"{agent} call limit {cap} reached"
+        self.hops += 1; self.calls[agent] += 1; return None
+
+_active = contextvars.ContextVar("fury_budget", default=None)
+
 class Bus:
     """Registry plus transport. Agents find each other by skill (discovery), not by hard-coded names."""
     def __init__(self):
@@ -74,9 +111,24 @@ class Bus:
     def send(self, sender, skill, data, to=None):
         name = to or self.find(skill)
         task = Task(skill=skill, input=data, sender=sender)
+        entry = name == "triage" and _active.get() is None      # a new top-level workflow gets its own budget
+        token = _active.set(Budget.from_env()) if entry else None
+        budget = _active.get()
+        try:
+            return self._send(budget, entry, sender, skill, name, task)
+        finally:
+            if entry:
+                telemetry.histogram("workflow.hops", budget.hops + budget.reserve_used); telemetry.histogram("workflow.seconds", round(budget.elapsed(), 2))
+                _active.reset(token)
+    def _send(self, budget, entry, sender, skill, name, task):
         t0 = time.perf_counter()
         with telemetry.span("agent.hop", skill=skill, agent_from=sender, agent_to=name) as sp:
-            self.agents[name].run(task)
+            why = None if (entry or budget is None) else budget.admit(name, skill)
+            if why:
+                task.state, task.error = "failed", f"budget exceeded: {why}"
+                telemetry.set_attr(sp, "budget_exceeded", why); telemetry.counter("budget.exceeded", agent=name, skill=skill)
+            else:
+                self.agents[name].run(task)
             # Agent.run swallows exceptions into task.state, so record the real outcome here
             telemetry.set_attr(sp, "state", task.state)
             if task.state == "failed":

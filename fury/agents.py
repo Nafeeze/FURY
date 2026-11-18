@@ -13,6 +13,7 @@ REPORT_KEYWORDS = [("memory", {"memory", "ram", "leak", "oom"}), ("disk", {"disk
 SEVERITY = {"critical": ("1", "1"), "major": ("2", "2"), "minor": ("3", "3")}
 
 class AgentError(Exception): pass
+class WorkflowBudgetExceeded(AgentError): pass
 def short(res, limit=300): return json.dumps(res, separators=(",", ":"))[:limit]
 def ev_line(e): return f"{e['tool']}({', '.join(f'{k}={v}' for k, v in e['params'].items())}) -> {short(e['result'])}"
 
@@ -156,12 +157,21 @@ class Triage(Agent):
             "instance": task.input.get("instance", "i-00654e3403673c840"), "severity": "major"}))
     def ok(self, skill, data):
         t = self.bus.send(self.name, skill, data)
-        if t.state != "completed": raise AgentError(f"{skill}: {t.error}")
+        if t.state != "completed":
+            if t.error.startswith("budget exceeded"): raise WorkflowBudgetExceeded(t.error)
+            raise AgentError(f"{skill}: {t.error}")
         return t.output
     def handle_alert(self, task):
+        """Budget guard: if the workflow runs out of budget at any point, stop and hand it to a human."""
+        self._rb = None
+        try: return self._handle_alert(task)
+        except WorkflowBudgetExceeded as e:
+            telemetry.counter("triage.outcome", outcome="budget_exceeded")
+            return self.escalate(task.input, self.ticket, self._rb, f"workflow stopped by its budget ({e}); needs human review", [])
+    def _handle_alert(self, task):
         a = task.input; query = f"{a['name']} {a['description']}"
         self.warnings, self.ticket = [], None
-        plan = self.ok("match_runbook", {"query": query}); rb = plan["runbook"]
+        plan = self.ok("match_runbook", {"query": query}); rb = plan["runbook"]; self._rb = rb
         steps = rb["steps"] if rb else []
         pre = []
         for s in steps:

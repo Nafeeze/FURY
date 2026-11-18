@@ -4,63 +4,63 @@
       "name": "disk_full_approved",
       "fault": "disk_full",
       "pass": true,
-      "ms": 1.0,
+      "ms": 2.5,
       "notes": []
     },
     {
       "name": "service_down_approved",
       "fault": "service_down",
       "pass": true,
-      "ms": 0.8,
+      "ms": 1.3,
       "notes": []
     },
     {
       "name": "cpu_runaway_approved",
       "fault": "cpu_runaway",
       "pass": true,
-      "ms": 0.8,
+      "ms": 1.3,
       "notes": []
     },
     {
       "name": "rejected_by_admin",
       "fault": "disk_full",
       "pass": true,
-      "ms": 1.7,
+      "ms": 1.1,
       "notes": []
     },
     {
       "name": "unauthorised_approver_then_timeout",
       "fault": "disk_full",
       "pass": true,
-      "ms": 0.7,
+      "ms": 1.0,
       "notes": []
     },
     {
       "name": "approval_timeout",
       "fault": "disk_full",
       "pass": true,
-      "ms": 0.7,
+      "ms": 1.0,
       "notes": []
     },
     {
       "name": "fix_does_not_work",
       "fault": "disk_full",
       "pass": true,
-      "ms": 0.8,
+      "ms": 1.2,
       "notes": []
     },
     {
       "name": "servicenow_down",
       "fault": "disk_full",
       "pass": true,
-      "ms": 0.3,
+      "ms": 0.5,
       "notes": []
     },
     {
       "name": "no_runbook_memory_pressure",
       "fault": "memory_pressure",
       "pass": true,
-      "ms": 0.4,
+      "ms": 0.6,
       "notes": []
     }
   ],
@@ -377,50 +377,50 @@
   "telemetry": {
     "counters": {
       "retrieval.count {'hit': True}": 8,
-      "agent.hop.count {'skill': 'match_runbook', 'state': 'completed', 'to': 'knowledge'}": 9,
-      "tool.call.count {'mode': 'read', 'tool': 'check_disk'}": 8,
+      "agent.hop.count {'state': 'completed', 'to': 'knowledge', 'skill': 'match_runbook'}": 9,
+      "tool.call.count {'tool': 'check_disk', 'mode': 'read'}": 8,
       "tool.call.count {'mode': 'read', 'tool': 'read_events'}": 8,
       "agent.hop.count {'state': 'completed', 'to': 'diagnostic', 'skill': 'run_checks'}": 13,
-      "agent.hop.count {'state': 'completed', 'to': 'itsm', 'skill': 'open_incident'}": 8,
-      "agent.hop.count {'state': 'completed', 'to': 'itsm', 'skill': 'add_note'}": 38,
+      "agent.hop.count {'to': 'itsm', 'state': 'completed', 'skill': 'open_incident'}": 8,
+      "agent.hop.count {'skill': 'add_note', 'to': 'itsm', 'state': 'completed'}": 38,
       "approval.count {'decision': 'approved'}": 4,
-      "agent.hop.count {'state': 'completed', 'skill': 'request_approval', 'to': 'comms'}": 4,
+      "agent.hop.count {'state': 'completed', 'to': 'comms', 'skill': 'request_approval'}": 4,
       "tool.call.count {'tool': 'clear_temp_files', 'mode': 'act'}": 2,
-      "agent.hop.count {'skill': 'remediate', 'state': 'completed', 'to': 'remediation'}": 4,
-      "agent.hop.count {'skill': 'resolve', 'state': 'completed', 'to': 'itsm'}": 3,
+      "agent.hop.count {'to': 'remediation', 'skill': 'remediate', 'state': 'completed'}": 4,
+      "agent.hop.count {'state': 'completed', 'to': 'itsm', 'skill': 'resolve'}": 3,
       "triage.outcome {'outcome': 'resolved', 'runbook': 'AWS-DISK-001'}": 1,
-      "agent.hop.count {'state': 'completed', 'skill': 'handle_alert', 'to': 'triage'}": 9,
+      "agent.hop.count {'state': 'completed', 'to': 'triage', 'skill': 'handle_alert'}": 9,
       "tool.call.count {'mode': 'read', 'tool': 'check_service'}": 2,
       "tool.call.count {'tool': 'restart_service', 'mode': 'act'}": 1,
       "triage.outcome {'outcome': 'resolved', 'runbook': 'AWS-SVC-001'}": 1,
-      "tool.call.count {'tool': 'check_cpu', 'mode': 'read'}": 2,
+      "tool.call.count {'mode': 'read', 'tool': 'check_cpu'}": 2,
       "tool.call.count {'tool': 'kill_process', 'mode': 'act'}": 1,
       "triage.outcome {'outcome': 'resolved', 'runbook': 'AWS-CPU-001'}": 1,
       "approval.count {'decision': 'rejected'}": 1,
-      "agent.hop.count {'state': 'failed', 'skill': 'request_approval', 'to': 'comms'}": 3,
-      "agent.hop.count {'skill': 'remediate', 'state': 'failed', 'to': 'remediation'}": 3,
-      "agent.hop.count {'state': 'completed', 'to': 'itsm', 'skill': 'assign'}": 5,
+      "agent.hop.count {'state': 'failed', 'to': 'comms', 'skill': 'request_approval'}": 3,
+      "agent.hop.count {'to': 'remediation', 'skill': 'remediate', 'state': 'failed'}": 3,
+      "agent.hop.count {'to': 'itsm', 'state': 'completed', 'skill': 'assign'}": 5,
       "agent.hop.count {'skill': 'notify_escalation', 'state': 'completed', 'to': 'comms'}": 6,
       "triage.outcome {'outcome': 'escalated', 'team': 'SRE-Platform L2'}": 6,
       "approval.count {'decision': 'timeout'}": 2,
-      "agent.hop.count {'state': 'failed', 'to': 'itsm', 'skill': 'open_incident'}": 1,
+      "agent.hop.count {'to': 'itsm', 'skill': 'open_incident', 'state': 'failed'}": 1,
       "retrieval.count {'hit': False}": 1,
-      "tool.call.count {'mode': 'read', 'tool': 'check_memory'}": 1,
+      "tool.call.count {'tool': 'check_memory', 'mode': 'read'}": 1,
       "llm.classify.count {'result': 'off'}": 23,
       "llm.sessions.expired": 1
     },
     "histograms": {
-      "agent.hop.duration_ms {'skill': 'match_runbook', 'to': 'knowledge'}": {
+      "agent.hop.duration_ms {'to': 'knowledge', 'skill': 'match_runbook'}": {
         "count": 9,
-        "avg_ms": 0.11,
-        "p95_ms": 0.2,
-        "max_ms": 0.2
+        "avg_ms": 0.14,
+        "p95_ms": 0.3,
+        "max_ms": 0.3
       },
       "agent.hop.duration_ms {'to': 'diagnostic', 'skill': 'run_checks'}": {
         "count": 13,
-        "avg_ms": 0.08,
-        "p95_ms": 0.1,
-        "max_ms": 0.1
+        "avg_ms": 0.12,
+        "p95_ms": 0.2,
+        "max_ms": 0.2
       },
       "agent.hop.duration_ms {'to': 'itsm', 'skill': 'open_incident'}": {
         "count": 9,
@@ -428,35 +428,47 @@
         "p95_ms": 0.1,
         "max_ms": 0.1
       },
-      "agent.hop.duration_ms {'to': 'itsm', 'skill': 'add_note'}": {
+      "agent.hop.duration_ms {'skill': 'add_note', 'to': 'itsm'}": {
         "count": 38,
-        "avg_ms": 0.02,
-        "p95_ms": 0.0,
-        "max_ms": 0.9
-      },
-      "agent.hop.duration_ms {'skill': 'request_approval', 'to': 'comms'}": {
-        "count": 7,
-        "avg_ms": 0.1,
+        "avg_ms": 0.01,
         "p95_ms": 0.1,
         "max_ms": 0.1
       },
-      "agent.hop.duration_ms {'skill': 'remediate', 'to': 'remediation'}": {
+      "agent.hop.duration_ms {'to': 'comms', 'skill': 'request_approval'}": {
         "count": 7,
-        "avg_ms": 0.17,
+        "avg_ms": 0.11,
         "p95_ms": 0.2,
         "max_ms": 0.2
       },
-      "agent.hop.duration_ms {'skill': 'resolve', 'to': 'itsm'}": {
+      "agent.hop.duration_ms {'to': 'remediation', 'skill': 'remediate'}": {
+        "count": 7,
+        "avg_ms": 0.24,
+        "p95_ms": 0.5,
+        "max_ms": 0.5
+      },
+      "agent.hop.duration_ms {'to': 'itsm', 'skill': 'resolve'}": {
         "count": 3,
+        "avg_ms": 0.03,
+        "p95_ms": 0.1,
+        "max_ms": 0.1
+      },
+      "agent.hop.duration_ms {'to': 'triage', 'skill': 'handle_alert'}": {
+        "count": 9,
+        "avg_ms": 1.12,
+        "p95_ms": 2.3,
+        "max_ms": 2.3
+      },
+      "workflow.hops": {
+        "count": 9,
+        "avg_ms": 10.78,
+        "p95_ms": 14,
+        "max_ms": 14
+      },
+      "workflow.seconds": {
+        "count": 9,
         "avg_ms": 0.0,
         "p95_ms": 0.0,
         "max_ms": 0.0
-      },
-      "agent.hop.duration_ms {'skill': 'handle_alert', 'to': 'triage'}": {
-        "count": 9,
-        "avg_ms": 0.79,
-        "p95_ms": 1.6,
-        "max_ms": 1.6
       },
       "agent.hop.duration_ms {'to': 'itsm', 'skill': 'assign'}": {
         "count": 5,
@@ -473,17 +485,17 @@
       "llm.classify.duration_ms {'result': 'off'}": {
         "count": 23,
         "avg_ms": 0.0,
-        "p95_ms": 0.0,
+        "p95_ms": 0.01,
         "max_ms": 0.01
       }
     },
     "recent_spans": [
       {
         "name": "approval.wait",
-        "trace_id": "47eb17311fe34559a2711449c03e51bf",
-        "span_id": "77ee7dbba2244d66",
-        "parent_id": "44965e962afa4bed",
-        "start": 1794399149.3225102,
+        "trace_id": "26c525237b0843969eaa002635b0036e",
+        "span_id": "366f14e7f32842b3",
+        "parent_id": "c80eacf89b7f43a9",
+        "start": 1795028000.7980618,
         "attrs": {
           "action": "clear_temp_files",
           "ttl_s": 600,
@@ -491,14 +503,14 @@
         },
         "ok": false,
         "error": "PermissionError: approval timed out with no authorised response",
-        "ms": 0.03
+        "ms": 0.04
       },
       {
         "name": "agent.hop",
-        "trace_id": "47eb17311fe34559a2711449c03e51bf",
-        "span_id": "44965e962afa4bed",
-        "parent_id": "fcda2787cb234fae",
-        "start": 1794399149.3224962,
+        "trace_id": "26c525237b0843969eaa002635b0036e",
+        "span_id": "c80eacf89b7f43a9",
+        "parent_id": "af801e4fc2d94c14",
+        "start": 1795028000.7980332,
         "attrs": {
           "skill": "request_approval",
           "agent_from": "remediation",
@@ -507,14 +519,14 @@
         },
         "ok": false,
         "error": "PermissionError: approval timed out with no authorised response",
-        "ms": 0.06
+        "ms": 0.1
       },
       {
         "name": "agent.hop",
-        "trace_id": "47eb17311fe34559a2711449c03e51bf",
-        "span_id": "fcda2787cb234fae",
-        "parent_id": "aa368e8c4a5f4cc3",
-        "start": 1794399149.3224745,
+        "trace_id": "26c525237b0843969eaa002635b0036e",
+        "span_id": "af801e4fc2d94c14",
+        "parent_id": "b0c5ad0e0a0b4fa8",
+        "start": 1795028000.7979963,
         "attrs": {
           "skill": "remediate",
           "agent_from": "triage",
@@ -523,174 +535,16 @@
         },
         "ok": false,
         "error": "PermissionError: approval not granted: PermissionError: approval timed out with no authorised response",
-        "ms": 0.1
+        "ms": 0.18
       },
       {
         "name": "agent.hop",
-        "trace_id": "47eb17311fe34559a2711449c03e51bf",
-        "span_id": "05aa824d33334558",
-        "parent_id": "aa368e8c4a5f4cc3",
-        "start": 1794399149.3225873,
+        "trace_id": "26c525237b0843969eaa002635b0036e",
+        "span_id": "886f142f7a0f456a",
+        "parent_id": "b0c5ad0e0a0b4fa8",
+        "start": 1795028000.798196,
         "attrs": {
           "skill": "add_note",
-          "agent_from": "triage",
-          "agent_to": "itsm",
-          "state": "completed"
-        },
-        "ok": true,
-        "error": null,
-        "ms": 0.01
-      },
-      {
-        "name": "agent.hop",
-        "trace_id": "47eb17311fe34559a2711449c03e51bf",
-        "span_id": "06e0d618340449cf",
-        "parent_id": "aa368e8c4a5f4cc3",
-        "start": 1794399149.32263,
-        "attrs": {
-          "skill": "assign",
-          "agent_from": "triage",
-          "agent_to": "itsm",
-          "state": "completed"
-        },
-        "ok": true,
-        "error": null,
-        "ms": 0.01
-      },
-      {
-        "name": "agent.hop",
-        "trace_id": "47eb17311fe34559a2711449c03e51bf",
-        "span_id": "19da9b0ff3d34a48",
-        "parent_id": "aa368e8c4a5f4cc3",
-        "start": 1794399149.322658,
-        "attrs": {
-          "skill": "add_note",
-          "agent_from": "triage",
-          "agent_to": "itsm",
-          "state": "completed"
-        },
-        "ok": true,
-        "error": null,
-        "ms": 0.01
-      },
-      {
-        "name": "agent.hop",
-        "trace_id": "47eb17311fe34559a2711449c03e51bf",
-        "span_id": "cfae7ed6a12c4b9a",
-        "parent_id": "aa368e8c4a5f4cc3",
-        "start": 1794399149.3226812,
-        "attrs": {
-          "skill": "notify_escalation",
-          "agent_from": "triage",
-          "agent_to": "comms",
-          "state": "completed"
-        },
-        "ok": true,
-        "error": null,
-        "ms": 0.01
-      },
-      {
-        "name": "agent.hop",
-        "trace_id": "47eb17311fe34559a2711449c03e51bf",
-        "span_id": "aa368e8c4a5f4cc3",
-        "parent_id": null,
-        "start": 1794399149.3220603,
-        "attrs": {
-          "skill": "handle_alert",
-          "agent_from": "cloudwatch",
-          "agent_to": "triage",
-          "state": "completed"
-        },
-        "ok": true,
-        "error": null,
-        "ms": 0.65
-      },
-      {
-        "name": "retrieval.runbook",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "2ddf42079e354023",
-        "parent_id": "49c96ecab1cf45d2",
-        "start": 1794399149.3230844,
-        "attrs": {
-          "corpus_size": 4,
-          "hit": true,
-          "runbook": "AWS-DISK-001",
-          "score": 2
-        },
-        "ok": true,
-        "error": null,
-        "ms": 0.04
-      },
-      {
-        "name": "agent.hop",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "49c96ecab1cf45d2",
-        "parent_id": "c322f0417d024590",
-        "start": 1794399149.3230681,
-        "attrs": {
-          "skill": "match_runbook",
-          "agent_from": "triage",
-          "agent_to": "knowledge",
-          "state": "completed"
-        },
-        "ok": true,
-        "error": null,
-        "ms": 0.07
-      },
-      {
-        "name": "tool.call",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "92472e246bb846ab",
-        "parent_id": "6580bfd8e5204c95",
-        "start": 1794399149.323176,
-        "attrs": {
-          "tool": "check_disk",
-          "mode": "read",
-          "healthy": false
-        },
-        "ok": true,
-        "error": null,
-        "ms": 0.01
-      },
-      {
-        "name": "tool.call",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "be69bc2220e14c57",
-        "parent_id": "6580bfd8e5204c95",
-        "start": 1794399149.3231966,
-        "attrs": {
-          "tool": "read_events",
-          "mode": "read",
-          "healthy": true
-        },
-        "ok": true,
-        "error": null,
-        "ms": 0.01
-      },
-      {
-        "name": "agent.hop",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "6580bfd8e5204c95",
-        "parent_id": "c322f0417d024590",
-        "start": 1794399149.3231583,
-        "attrs": {
-          "skill": "run_checks",
-          "agent_from": "triage",
-          "agent_to": "diagnostic",
-          "state": "completed"
-        },
-        "ok": true,
-        "error": null,
-        "ms": 0.06
-      },
-      {
-        "name": "agent.hop",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "59de13883ae34727",
-        "parent_id": "c322f0417d024590",
-        "start": 1794399149.3232348,
-        "attrs": {
-          "skill": "open_incident",
           "agent_from": "triage",
           "agent_to": "itsm",
           "state": "completed"
@@ -701,10 +555,26 @@
       },
       {
         "name": "agent.hop",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "34784828c86647f1",
-        "parent_id": "c322f0417d024590",
-        "start": 1794399149.3232853,
+        "trace_id": "26c525237b0843969eaa002635b0036e",
+        "span_id": "883f4f4ea54f44e7",
+        "parent_id": "b0c5ad0e0a0b4fa8",
+        "start": 1795028000.7982643,
+        "attrs": {
+          "skill": "assign",
+          "agent_from": "triage",
+          "agent_to": "itsm",
+          "state": "completed"
+        },
+        "ok": true,
+        "error": null,
+        "ms": 0.02
+      },
+      {
+        "name": "agent.hop",
+        "trace_id": "26c525237b0843969eaa002635b0036e",
+        "span_id": "2f601788638d4b99",
+        "parent_id": "b0c5ad0e0a0b4fa8",
+        "start": 1795028000.798311,
         "attrs": {
           "skill": "add_note",
           "agent_from": "triage",
@@ -713,14 +583,156 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.01
+        "ms": 0.02
+      },
+      {
+        "name": "agent.hop",
+        "trace_id": "26c525237b0843969eaa002635b0036e",
+        "span_id": "c39587679ef542ff",
+        "parent_id": "b0c5ad0e0a0b4fa8",
+        "start": 1795028000.7983527,
+        "attrs": {
+          "skill": "notify_escalation",
+          "agent_from": "triage",
+          "agent_to": "comms",
+          "state": "completed"
+        },
+        "ok": true,
+        "error": null,
+        "ms": 0.02
+      },
+      {
+        "name": "agent.hop",
+        "trace_id": "26c525237b0843969eaa002635b0036e",
+        "span_id": "b0c5ad0e0a0b4fa8",
+        "parent_id": null,
+        "start": 1795028000.7974372,
+        "attrs": {
+          "skill": "handle_alert",
+          "agent_from": "cloudwatch",
+          "agent_to": "triage",
+          "state": "completed"
+        },
+        "ok": true,
+        "error": null,
+        "ms": 0.96
+      },
+      {
+        "name": "retrieval.runbook",
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "e1aedf43937046ca",
+        "parent_id": "faf5899e6a614ccd",
+        "start": 1795028000.8018672,
+        "attrs": {
+          "corpus_size": 4,
+          "hit": true,
+          "runbook": "AWS-DISK-001",
+          "score": 2
+        },
+        "ok": true,
+        "error": null,
+        "ms": 0.06
+      },
+      {
+        "name": "agent.hop",
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "faf5899e6a614ccd",
+        "parent_id": "1666bb35200642e7",
+        "start": 1795028000.8018413,
+        "attrs": {
+          "skill": "match_runbook",
+          "agent_from": "triage",
+          "agent_to": "knowledge",
+          "state": "completed"
+        },
+        "ok": true,
+        "error": null,
+        "ms": 0.1
+      },
+      {
+        "name": "tool.call",
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "da2836b740334379",
+        "parent_id": "b5cc641b07864e9a",
+        "start": 1795028000.8019998,
+        "attrs": {
+          "tool": "check_disk",
+          "mode": "read",
+          "healthy": false
+        },
+        "ok": true,
+        "error": null,
+        "ms": 0.02
+      },
+      {
+        "name": "tool.call",
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "ec9efd2ab90d408d",
+        "parent_id": "b5cc641b07864e9a",
+        "start": 1795028000.802031,
+        "attrs": {
+          "tool": "read_events",
+          "mode": "read",
+          "healthy": true
+        },
+        "ok": true,
+        "error": null,
+        "ms": 0.02
+      },
+      {
+        "name": "agent.hop",
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "b5cc641b07864e9a",
+        "parent_id": "1666bb35200642e7",
+        "start": 1795028000.8019698,
+        "attrs": {
+          "skill": "run_checks",
+          "agent_from": "triage",
+          "agent_to": "diagnostic",
+          "state": "completed"
+        },
+        "ok": true,
+        "error": null,
+        "ms": 0.09
+      },
+      {
+        "name": "agent.hop",
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "e8b91115fa494247",
+        "parent_id": "1666bb35200642e7",
+        "start": 1795028000.8020864,
+        "attrs": {
+          "skill": "open_incident",
+          "agent_from": "triage",
+          "agent_to": "itsm",
+          "state": "completed"
+        },
+        "ok": true,
+        "error": null,
+        "ms": 0.03
+      },
+      {
+        "name": "agent.hop",
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "6db731b4508c4493",
+        "parent_id": "1666bb35200642e7",
+        "start": 1795028000.8021667,
+        "attrs": {
+          "skill": "add_note",
+          "agent_from": "triage",
+          "agent_to": "itsm",
+          "state": "completed"
+        },
+        "ok": true,
+        "error": null,
+        "ms": 0.02
       },
       {
         "name": "agent.decision",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "857dd0f37ad54067",
-        "parent_id": "c322f0417d024590",
-        "start": 1794399149.3233082,
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "17962fa4380b4c66",
+        "parent_id": "1666bb35200642e7",
+        "start": 1795028000.8022082,
         "attrs": {
           "runbook": "AWS-DISK-001",
           "step": 3,
@@ -729,14 +741,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.01
+        "ms": 0.03
       },
       {
         "name": "agent.hop",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "d0fe092433a047c3",
-        "parent_id": "c322f0417d024590",
-        "start": 1794399149.3233333,
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "a44dc19f109c4369",
+        "parent_id": "1666bb35200642e7",
+        "start": 1795028000.8022516,
         "attrs": {
           "skill": "add_note",
           "agent_from": "triage",
@@ -745,14 +757,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.01
+        "ms": 0.03
       },
       {
         "name": "agent.hop",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "5a05a434e9aa4b1a",
-        "parent_id": "c322f0417d024590",
-        "start": 1794399149.3233595,
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "8d7144063df444a2",
+        "parent_id": "1666bb35200642e7",
+        "start": 1795028000.8023171,
         "attrs": {
           "skill": "add_note",
           "agent_from": "triage",
@@ -761,14 +773,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.04
+        "ms": 0.02
       },
       {
         "name": "approval.wait",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "6cb7b27ad5fc4f98",
-        "parent_id": "07dd33601dd64e68",
-        "start": 1794399149.3234737,
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "4afc76ad4dfa46fc",
+        "parent_id": "3606784588d44b81",
+        "start": 1795028000.8024454,
         "attrs": {
           "action": "clear_temp_files",
           "ttl_s": 600,
@@ -780,10 +792,10 @@
       },
       {
         "name": "agent.hop",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "07dd33601dd64e68",
-        "parent_id": "af2b03aa82c44e5c",
-        "start": 1794399149.3234575,
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "3606784588d44b81",
+        "parent_id": "2e2fb030d23f4194",
+        "start": 1795028000.8024187,
         "attrs": {
           "skill": "request_approval",
           "agent_from": "remediation",
@@ -792,28 +804,28 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.07
+        "ms": 0.09
       },
       {
         "name": "tool.call",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "1186687237f8445f",
-        "parent_id": "af2b03aa82c44e5c",
-        "start": 1794399149.3235583,
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "ff7856d2c87c4bed",
+        "parent_id": "2e2fb030d23f4194",
+        "start": 1795028000.8025472,
         "attrs": {
           "tool": "clear_temp_files",
           "mode": "act"
         },
         "ok": true,
         "error": null,
-        "ms": 0.01
+        "ms": 0.02
       },
       {
         "name": "agent.hop",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "af2b03aa82c44e5c",
-        "parent_id": "c322f0417d024590",
-        "start": 1794399149.3234332,
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "2e2fb030d23f4194",
+        "parent_id": "1666bb35200642e7",
+        "start": 1795028000.8023844,
         "attrs": {
           "skill": "remediate",
           "agent_from": "triage",
@@ -822,14 +834,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.15
+        "ms": 0.2
       },
       {
         "name": "agent.hop",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "56113ac7a7e140b2",
-        "parent_id": "c322f0417d024590",
-        "start": 1794399149.3236158,
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "0a72bd32306b40b4",
+        "parent_id": "1666bb35200642e7",
+        "start": 1795028000.802616,
         "attrs": {
           "skill": "add_note",
           "agent_from": "triage",
@@ -842,10 +854,10 @@
       },
       {
         "name": "tool.call",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "53171722b4624402",
-        "parent_id": "55d9a57ff44440cb",
-        "start": 1794399149.3236585,
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "326fd3f6ab6c4592",
+        "parent_id": "b1f585a51fef49c7",
+        "start": 1795028000.8026829,
         "attrs": {
           "tool": "check_disk",
           "mode": "read",
@@ -853,14 +865,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.01
+        "ms": 0.02
       },
       {
         "name": "agent.hop",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "55d9a57ff44440cb",
-        "parent_id": "c322f0417d024590",
-        "start": 1794399149.323645,
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "b1f585a51fef49c7",
+        "parent_id": "1666bb35200642e7",
+        "start": 1795028000.8026595,
         "attrs": {
           "skill": "run_checks",
           "agent_from": "triage",
@@ -869,14 +881,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.03
+        "ms": 0.05
       },
       {
         "name": "agent.hop",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "6a1b41d63fa8427d",
-        "parent_id": "c322f0417d024590",
-        "start": 1794399149.3237033,
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "b03ca57981564759",
+        "parent_id": "1666bb35200642e7",
+        "start": 1795028000.8027465,
         "attrs": {
           "skill": "add_note",
           "agent_from": "triage",
@@ -885,14 +897,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.01
+        "ms": 0.02
       },
       {
         "name": "agent.hop",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "0a128b8b384043d4",
-        "parent_id": "c322f0417d024590",
-        "start": 1794399149.3237476,
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "db29d845600f4779",
+        "parent_id": "1666bb35200642e7",
+        "start": 1795028000.8028176,
         "attrs": {
           "skill": "assign",
           "agent_from": "triage",
@@ -905,10 +917,10 @@
       },
       {
         "name": "agent.hop",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "530652cd854241c4",
-        "parent_id": "c322f0417d024590",
-        "start": 1794399149.3237772,
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "16523eefd63744a9",
+        "parent_id": "1666bb35200642e7",
+        "start": 1795028000.8028643,
         "attrs": {
           "skill": "add_note",
           "agent_from": "triage",
@@ -917,14 +929,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.01
+        "ms": 0.03
       },
       {
         "name": "agent.hop",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "58c30ac702ac46a0",
-        "parent_id": "c322f0417d024590",
-        "start": 1794399149.323807,
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "8dcc7d2b424d4c56",
+        "parent_id": "1666bb35200642e7",
+        "start": 1795028000.8029149,
         "attrs": {
           "skill": "notify_escalation",
           "agent_from": "triage",
@@ -933,14 +945,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.02
+        "ms": 0.04
       },
       {
         "name": "agent.hop",
-        "trace_id": "1debe48b6bc247378c8a038faf9bdd04",
-        "span_id": "c322f0417d024590",
+        "trace_id": "fcc201d097e34025a4cf7a3e4e507e5d",
+        "span_id": "1666bb35200642e7",
         "parent_id": null,
-        "start": 1794399149.3230436,
+        "start": 1795028000.8018022,
         "attrs": {
           "skill": "handle_alert",
           "agent_from": "cloudwatch",
@@ -949,14 +961,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.8
+        "ms": 1.18
       },
       {
         "name": "retrieval.runbook",
-        "trace_id": "ac5f533b5be44e8d93a2e706055b533f",
-        "span_id": "5721a964091345e2",
-        "parent_id": "7fcb5287068e415c",
-        "start": 1794399149.324215,
+        "trace_id": "8a56fdd250e54627986b3775363d0a38",
+        "span_id": "1dd92f86f3744f39",
+        "parent_id": "7d6c8b001aca43bd",
+        "start": 1795028000.8065164,
         "attrs": {
           "corpus_size": 4,
           "hit": true,
@@ -965,14 +977,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.04
+        "ms": 0.06
       },
       {
         "name": "agent.hop",
-        "trace_id": "ac5f533b5be44e8d93a2e706055b533f",
-        "span_id": "7fcb5287068e415c",
-        "parent_id": "a67639d864df4012",
-        "start": 1794399149.3242016,
+        "trace_id": "8a56fdd250e54627986b3775363d0a38",
+        "span_id": "7d6c8b001aca43bd",
+        "parent_id": "e4bc89e1cca54a2c",
+        "start": 1795028000.8064892,
         "attrs": {
           "skill": "match_runbook",
           "agent_from": "triage",
@@ -981,14 +993,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.06
+        "ms": 0.11
       },
       {
         "name": "tool.call",
-        "trace_id": "ac5f533b5be44e8d93a2e706055b533f",
-        "span_id": "b9ce3785e72b45eb",
-        "parent_id": "bff349be49e04a3d",
-        "start": 1794399149.3242998,
+        "trace_id": "8a56fdd250e54627986b3775363d0a38",
+        "span_id": "445d07a912a440e0",
+        "parent_id": "abf026900a914ac0",
+        "start": 1795028000.8066514,
         "attrs": {
           "tool": "check_disk",
           "mode": "read",
@@ -996,14 +1008,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.01
+        "ms": 0.02
       },
       {
         "name": "tool.call",
-        "trace_id": "ac5f533b5be44e8d93a2e706055b533f",
-        "span_id": "128182f2ba7546a6",
-        "parent_id": "bff349be49e04a3d",
-        "start": 1794399149.3243206,
+        "trace_id": "8a56fdd250e54627986b3775363d0a38",
+        "span_id": "6f9ab72b2fcd411e",
+        "parent_id": "abf026900a914ac0",
+        "start": 1795028000.806682,
         "attrs": {
           "tool": "read_events",
           "mode": "read",
@@ -1011,14 +1023,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.01
+        "ms": 0.02
       },
       {
         "name": "agent.hop",
-        "trace_id": "ac5f533b5be44e8d93a2e706055b533f",
-        "span_id": "bff349be49e04a3d",
-        "parent_id": "a67639d864df4012",
-        "start": 1794399149.3242826,
+        "trace_id": "8a56fdd250e54627986b3775363d0a38",
+        "span_id": "abf026900a914ac0",
+        "parent_id": "e4bc89e1cca54a2c",
+        "start": 1795028000.8066242,
         "attrs": {
           "skill": "run_checks",
           "agent_from": "triage",
@@ -1027,14 +1039,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.06
+        "ms": 0.09
       },
       {
         "name": "agent.hop",
-        "trace_id": "ac5f533b5be44e8d93a2e706055b533f",
-        "span_id": "1a7bd59438644356",
-        "parent_id": "a67639d864df4012",
-        "start": 1794399149.324357,
+        "trace_id": "8a56fdd250e54627986b3775363d0a38",
+        "span_id": "791044be4d7c49a3",
+        "parent_id": "e4bc89e1cca54a2c",
+        "start": 1795028000.8067365,
         "attrs": {
           "skill": "open_incident",
           "agent_from": "triage",
@@ -1043,14 +1055,14 @@
         },
         "ok": false,
         "error": "SnowError: ServiceNow unreachable (simulated)",
-        "ms": 0.05
+        "ms": 0.04
       },
       {
         "name": "agent.hop",
-        "trace_id": "ac5f533b5be44e8d93a2e706055b533f",
-        "span_id": "759ec34761f14f3f",
-        "parent_id": "a67639d864df4012",
-        "start": 1794399149.3244505,
+        "trace_id": "8a56fdd250e54627986b3775363d0a38",
+        "span_id": "c683ede7a8df4986",
+        "parent_id": "e4bc89e1cca54a2c",
+        "start": 1795028000.8068368,
         "attrs": {
           "skill": "notify_escalation",
           "agent_from": "triage",
@@ -1059,14 +1071,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.02
+        "ms": 0.03
       },
       {
         "name": "agent.hop",
-        "trace_id": "ac5f533b5be44e8d93a2e706055b533f",
-        "span_id": "a67639d864df4012",
+        "trace_id": "8a56fdd250e54627986b3775363d0a38",
+        "span_id": "e4bc89e1cca54a2c",
         "parent_id": null,
-        "start": 1794399149.3241792,
+        "start": 1795028000.8064494,
         "attrs": {
           "skill": "handle_alert",
           "agent_from": "cloudwatch",
@@ -1075,14 +1087,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.31
+        "ms": 0.45
       },
       {
         "name": "retrieval.runbook",
-        "trace_id": "7f5f41d7178e49ed9259e8b2b9df7300",
-        "span_id": "bd3220fde3e54ade",
-        "parent_id": "0a8728fbbf51434f",
-        "start": 1794399149.3248434,
+        "trace_id": "566abee5bef944828b814c2e7bdeef3d",
+        "span_id": "5b92228b1d7f4a12",
+        "parent_id": "f1df71d3545f4b98",
+        "start": 1795028000.8102198,
         "attrs": {
           "corpus_size": 4,
           "hit": false,
@@ -1091,14 +1103,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.03
+        "ms": 0.05
       },
       {
         "name": "agent.hop",
-        "trace_id": "7f5f41d7178e49ed9259e8b2b9df7300",
-        "span_id": "0a8728fbbf51434f",
-        "parent_id": "9f916f8af6944688",
-        "start": 1794399149.324827,
+        "trace_id": "566abee5bef944828b814c2e7bdeef3d",
+        "span_id": "f1df71d3545f4b98",
+        "parent_id": "a60fb6719c0c4384",
+        "start": 1795028000.8101928,
         "attrs": {
           "skill": "match_runbook",
           "agent_from": "triage",
@@ -1107,14 +1119,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.06
+        "ms": 0.09
       },
       {
         "name": "tool.call",
-        "trace_id": "7f5f41d7178e49ed9259e8b2b9df7300",
-        "span_id": "419e12c978a14bc2",
-        "parent_id": "4c38f3de37204772",
-        "start": 1794399149.3249178,
+        "trace_id": "566abee5bef944828b814c2e7bdeef3d",
+        "span_id": "e97026b09785424a",
+        "parent_id": "be1b78fb67b64982",
+        "start": 1795028000.8103435,
         "attrs": {
           "tool": "check_memory",
           "mode": "read",
@@ -1122,14 +1134,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.01
+        "ms": 0.02
       },
       {
         "name": "tool.call",
-        "trace_id": "7f5f41d7178e49ed9259e8b2b9df7300",
-        "span_id": "33baad261da848f8",
-        "parent_id": "4c38f3de37204772",
-        "start": 1794399149.3249364,
+        "trace_id": "566abee5bef944828b814c2e7bdeef3d",
+        "span_id": "fef36f12cafa4230",
+        "parent_id": "be1b78fb67b64982",
+        "start": 1795028000.8103724,
         "attrs": {
           "tool": "read_events",
           "mode": "read",
@@ -1137,14 +1149,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.01
+        "ms": 0.02
       },
       {
         "name": "agent.hop",
-        "trace_id": "7f5f41d7178e49ed9259e8b2b9df7300",
-        "span_id": "4c38f3de37204772",
-        "parent_id": "9f916f8af6944688",
-        "start": 1794399149.3249035,
+        "trace_id": "566abee5bef944828b814c2e7bdeef3d",
+        "span_id": "be1b78fb67b64982",
+        "parent_id": "a60fb6719c0c4384",
+        "start": 1795028000.810316,
         "attrs": {
           "skill": "run_checks",
           "agent_from": "triage",
@@ -1153,16 +1165,32 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.05
+        "ms": 0.09
       },
       {
         "name": "agent.hop",
-        "trace_id": "7f5f41d7178e49ed9259e8b2b9df7300",
-        "span_id": "eb6b0bfdc8f14612",
-        "parent_id": "9f916f8af6944688",
-        "start": 1794399149.3249724,
+        "trace_id": "566abee5bef944828b814c2e7bdeef3d",
+        "span_id": "b18b1242a45f4fd9",
+        "parent_id": "a60fb6719c0c4384",
+        "start": 1795028000.8104277,
         "attrs": {
           "skill": "open_incident",
+          "agent_from": "triage",
+          "agent_to": "itsm",
+          "state": "completed"
+        },
+        "ok": true,
+        "error": null,
+        "ms": 0.03
+      },
+      {
+        "name": "agent.hop",
+        "trace_id": "566abee5bef944828b814c2e7bdeef3d",
+        "span_id": "706c897c356f4be8",
+        "parent_id": "a60fb6719c0c4384",
+        "start": 1795028000.8105063,
+        "attrs": {
+          "skill": "add_note",
           "agent_from": "triage",
           "agent_to": "itsm",
           "state": "completed"
@@ -1173,26 +1201,10 @@
       },
       {
         "name": "agent.hop",
-        "trace_id": "7f5f41d7178e49ed9259e8b2b9df7300",
-        "span_id": "e6789925ae2b4fdc",
-        "parent_id": "9f916f8af6944688",
-        "start": 1794399149.325047,
-        "attrs": {
-          "skill": "add_note",
-          "agent_from": "triage",
-          "agent_to": "itsm",
-          "state": "completed"
-        },
-        "ok": true,
-        "error": null,
-        "ms": 0.01
-      },
-      {
-        "name": "agent.hop",
-        "trace_id": "7f5f41d7178e49ed9259e8b2b9df7300",
-        "span_id": "5427ea4fb548426f",
-        "parent_id": "9f916f8af6944688",
-        "start": 1794399149.3250916,
+        "trace_id": "566abee5bef944828b814c2e7bdeef3d",
+        "span_id": "a785d330ef1f43db",
+        "parent_id": "a60fb6719c0c4384",
+        "start": 1795028000.8105752,
         "attrs": {
           "skill": "assign",
           "agent_from": "triage",
@@ -1201,14 +1213,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.01
+        "ms": 0.02
       },
       {
         "name": "agent.hop",
-        "trace_id": "7f5f41d7178e49ed9259e8b2b9df7300",
-        "span_id": "6174829cfb284227",
-        "parent_id": "9f916f8af6944688",
-        "start": 1794399149.3251216,
+        "trace_id": "566abee5bef944828b814c2e7bdeef3d",
+        "span_id": "bca1b75e3be84580",
+        "parent_id": "a60fb6719c0c4384",
+        "start": 1795028000.8106303,
         "attrs": {
           "skill": "add_note",
           "agent_from": "triage",
@@ -1217,14 +1229,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.01
+        "ms": 0.02
       },
       {
         "name": "agent.hop",
-        "trace_id": "7f5f41d7178e49ed9259e8b2b9df7300",
-        "span_id": "a1a7371e051f4c5b",
-        "parent_id": "9f916f8af6944688",
-        "start": 1794399149.3251472,
+        "trace_id": "566abee5bef944828b814c2e7bdeef3d",
+        "span_id": "94b721f37cad4a39",
+        "parent_id": "a60fb6719c0c4384",
+        "start": 1795028000.8106754,
         "attrs": {
           "skill": "notify_escalation",
           "agent_from": "triage",
@@ -1237,10 +1249,10 @@
       },
       {
         "name": "agent.hop",
-        "trace_id": "7f5f41d7178e49ed9259e8b2b9df7300",
-        "span_id": "9f916f8af6944688",
+        "trace_id": "566abee5bef944828b814c2e7bdeef3d",
+        "span_id": "a60fb6719c0c4384",
         "parent_id": null,
-        "start": 1794399149.324801,
+        "start": 1795028000.8101523,
         "attrs": {
           "skill": "handle_alert",
           "agent_from": "cloudwatch",
@@ -1249,14 +1261,14 @@
         },
         "ok": true,
         "error": null,
-        "ms": 0.38
+        "ms": 0.57
       },
       {
         "name": "eval.privacy.canary",
-        "trace_id": "7f6c818b45244cf59b5cc91ceb090621",
-        "span_id": "1f2451450ac64121",
+        "trace_id": "2c52d88b1aff4b09a08eb1a82a4c2052",
+        "span_id": "4e0ad32065a041c9",
         "parent_id": null,
-        "start": 1794399149.3260994,
+        "start": 1795028000.8120863,
         "attrs": {
           "note": "contact [email] at [ip]"
         },
