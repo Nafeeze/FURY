@@ -199,6 +199,7 @@ Fill in:
 | `AWS_DIAG_KEY_ID`, `AWS_DIAG_SECRET` | from 1.4 |
 | `AWS_REMED_KEY_ID`, `AWS_REMED_SECRET` | from 1.4 |
 | `FURY_SNOW`, `FURY_TARGET`, `FURY_CHAT` | `real` for each piece that is set up; `fake` for any that is not yet |
+| `FURY_API_TOKENS` | **Required for real mode** (FURY refuses to start without it). Create with `python -m fury.auth new <your-name> admin`, which prints a token ONCE plus a `name:role:hash` entry. Put only the entry here; keep the token in a password manager. Add more users with roles `operator` (chat) or `viewer` (read-only), comma-separated |
 | `FURY_DB` (optional) | `fury.db` to keep run history across restarts |
 | `FURY_CHAT_MODE` (optional) | `full` to let *chat* open incidents. Default `readonly`. CloudWatch alarms always work regardless |
 
@@ -233,7 +234,7 @@ What the lines mean and what to do when one fails:
 
 Then the end-to-end demo:
 
-1. `python run_fury.py` and open http://127.0.0.1:8080 (watch the console: it prints `snow=real server=real chat=real`).
+1. `python run_fury.py` and open http://127.0.0.1:8080 (watch the console: it prints `API auth: ON (...)` and `snow=real server=real chat=real`). The page asks for your access token on first use; paste the token from step 4. If it refuses to start, read the message: it needs `FURY_API_TOKENS`.
 2. In CloudShell: `python3 faults.py service_down --region ... --instance ...`
 3. Within ~2-3 minutes: alarm > FURY triages > runbook matched > ServiceNow ticket created > Slack approval message in `#sre-approvals`.
 4. The approver replies **yes/approve** in the thread. FURY restarts W3SVC, verifies it is healthy, and resolves the ticket.
@@ -243,6 +244,8 @@ Then the end-to-end demo:
 ---
 
 ## 6. Troubleshooting
+
+Also see `docs/ENTERPRISE_STATUS.md` for what is verified and what is not.
 
 | Symptom | Likely cause / fix |
 |---|---|
@@ -257,6 +260,8 @@ Then the end-to-end demo:
 | ServiceNow connection refused / timeout | PDI is hibernating. Wake it in the developer portal |
 | Slack message appears but approving does nothing | Reply must come from an ID in `SLACK_APPROVER_IDS`; Event Subscriptions `message.channels` must be on; reply in the thread |
 | Approval expires | Tokens expire after 10 min by default; re-trigger |
+| FURY exits with "Refusing to start ... no API authentication" | Set `FURY_API_TOKENS` (see Part 4), or `FURY_AUTH=off` on a trusted machine |
+| Browser keeps asking for a token / `401` | Wrong or missing token; the token is not the hash. Use the long string printed by `python -m fury.auth new` |
 | Chat says "reporting is disabled in read-only mode" | Set `FURY_CHAT_MODE=full` (alarms are unaffected) |
 | `memory_pressure` does nothing | Instance too small/too large for the fault to reach 92%; try t3.small, or adjust the loop in `faults.py` |
 

@@ -109,7 +109,8 @@ td{padding:9px 8px;border-top:1px solid rgba(255,255,255,.08)}tr.row{cursor:poin
 <script>
 const $=id=>document.getElementById(id);let cur=null;const ST={'1':'New','2':'In Progress','3':'On Hold','6':'Resolved','7':'Closed'};
 let SID=sessionStorage.getItem('furySession');if(!SID){SID=crypto.randomUUID();sessionStorage.setItem('furySession',SID)}
-const api=(u,o)=>fetch(u,Object.assign({},o,{headers:Object.assign({'X-Fury-Session':SID},(o&&o.headers)||{})})).then(r=>r.json());
+let TOK=sessionStorage.getItem('furyToken')||'';
+const api=async(u,o,retry=1)=>{const h=Object.assign({'X-Fury-Session':SID},TOK?{Authorization:'Bearer '+TOK}:{},(o&&o.headers)||{});const r=await fetch(u,Object.assign({},o,{headers:h}));if(r.status===401&&retry){const t=prompt('FURY access token (ask an admin)');if(t){TOK=t.trim();sessionStorage.setItem('furyToken',TOK);return api(u,o,0)}}return r.json()};
 function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e}
 function tab(w){$('chatView').classList.toggle('hidden',w!=='chat');$('incView').classList.toggle('hidden',w!=='inc');$('obsView').classList.toggle('hidden',w!=='obs');$('tObs').classList.toggle('active',w==='obs');$('tChat').classList.toggle('active',w==='chat');$('tInc').classList.toggle('active',w==='inc');if(w==='inc')loadInc();if(w==='obs')loadObs()}
 $('tObs').onclick=()=>tab('obs');$('tChat').onclick=()=>tab('chat');$('tInc').onclick=()=>tab('inc');

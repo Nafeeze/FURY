@@ -57,4 +57,27 @@ class StoreTests(unittest.TestCase):
     def test_no_store_keeps_old_behaviour(self):
         c = self.ctx(None); rid = c.answer("a", "b"); self.assertIn(rid, c.runs)
 
-if __name__ == "__main__": unittest.main()
+
+class RecoveryAndConcurrencyTests(unittest.TestCase):
+    def test_pending_approval_is_expired_on_restart(self):
+        path = os.path.join(tempfile.mkdtemp(), "f.db"); st = Store(path)
+        a = st.approval_open("INC1", "restart_service", "W3SVC", "human"); st.approval_open("INC2", "kill_process", "fury-rogue", "human")
+        st.approval_update(a, "executed", approver=ADMIN)
+        Store(path).recover_interrupted()
+        self.assertEqual({h["ticket"]: h["status"] for h in Store(path).approvals_history()}, {"INC1": "executed", "INC2": "expired"})
+
+    def test_concurrent_workflows_do_not_corrupt_each_other(self):
+        st = Store(os.path.join(tempfile.mkdtemp(), "f.db")); t, s, c = FakeTarget(), FakeSnow(), FakeChat()
+        bus, triage, _ = system.build(target=t, snow=s, chat=c, store=st); ctx = Ctx(bus, triage, s, c, "i-1", t, store=st)
+        ids = [ctx.submit("handle_alert", system.ALERTS["memory_pressure"], "test", f"r{i}") for i in range(8)]
+        t.inject("memory_pressure")
+        for rid in ids:
+            for _ in range(200):
+                if ctx.runs[rid]["state"] in ("done", "error"): break
+                time.sleep(0.05)
+        self.assertEqual({ctx.runs[r]["state"] for r in ids}, {"done"})
+        self.assertEqual(len(set(ids)), 8); self.assertEqual(len(st.load_runs()), 8)
+        self.assertTrue(all(st.load_runs()[r]["state"] == "done" for r in ids))
+
+if __name__ == "__main__":
+    unittest.main()

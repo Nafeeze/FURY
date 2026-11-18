@@ -6,6 +6,8 @@ import json, sqlite3, threading
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, at TEXT, state TEXT, data TEXT NOT NULL, updated REAL DEFAULT (julianday('now')));
+CREATE TABLE IF NOT EXISTS approvals (id INTEGER PRIMARY KEY AUTOINCREMENT, ticket TEXT, action TEXT, target TEXT, tier TEXT, status TEXT NOT NULL,
+  approver TEXT, detail TEXT, requested_at TEXT DEFAULT (datetime('now')), decided_at TEXT, finished_at TEXT);
 CREATE TABLE IF NOT EXISTS attempts (ticket TEXT, action TEXT, n INTEGER NOT NULL, PRIMARY KEY (ticket, action));
 """
 
@@ -40,6 +42,11 @@ class Store:
         for r in self.load_runs(1000).values():
             if r.get("state") in ("queued", "running"):
                 r.update(state="error", out={"outcome": "error", "reason": "interrupted by restart"}); self.save_run(r); n += 1
+        # An approval that was still waiting when the process died can never be honoured: the signed token only
+        # exists in memory and the waiting workflow is gone. Close it so nobody believes it is still pending.
+        with self._lock:
+            self._db.execute("UPDATE approvals SET status='expired', detail='interrupted by restart', decided_at=datetime('now') WHERE status='requested'")
+            self._db.commit()
         return n
 
     # ---- remediation attempts (one-attempt-then-escalate must survive a restart) ----
@@ -52,6 +59,34 @@ class Store:
         with self._lock:
             self._db.execute("INSERT INTO attempts (ticket, action, n) VALUES (?,?,1) ON CONFLICT(ticket, action) DO UPDATE SET n=n+1", (ticket, action))
             self._db.commit()
+
+    # ---- approval / execution audit trail: requested -> approved|rejected|expired|denied -> executed|failed ----
+    def approval_open(self, ticket, action, target, tier):
+        with self._lock:
+            cur = self._db.execute("INSERT INTO approvals (ticket, action, target, tier, status) VALUES (?,?,?,?, 'requested')", (ticket, action, target, tier))
+            self._db.commit(); return cur.lastrowid
+
+    def approval_update(self, aid, status, approver=None, detail=None):
+        col = "decided_at" if status in ("approved", "rejected", "expired", "denied") else "finished_at"
+        with self._lock:
+            self._db.execute(f"UPDATE approvals SET status=?, approver=COALESCE(?, approver), detail=COALESCE(?, detail), {col}=datetime('now') WHERE id=?",
+                             (status, approver, (detail or None) and str(detail)[:300], aid))
+            self._db.commit()
+
+    def approvals_history(self, limit=50):
+        with self._lock:
+            rows = self._db.execute("SELECT id,ticket,action,target,tier,status,approver,detail,requested_at,decided_at,finished_at FROM approvals ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        keys = ("id", "ticket", "action", "target", "tier", "status", "approver", "detail", "requested_at", "decided_at", "finished_at")
+        return [dict(zip(keys, r)) for r in rows]
+
+    def prune(self, days):
+        """Retention: delete runs and approval records older than `days`. Returns counts. days<=0 keeps everything."""
+        if days <= 0: return {"runs": 0, "approvals": 0}
+        with self._lock:
+            r = self._db.execute("DELETE FROM runs WHERE updated < julianday('now') - ?", (days,)).rowcount
+            a = self._db.execute("DELETE FROM approvals WHERE requested_at < datetime('now', ?)", (f"-{int(days)} days",)).rowcount
+            self._db.commit()
+        return {"runs": r, "approvals": a}
 
     def close(self):
         with self._lock: self._db.close()

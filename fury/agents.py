@@ -1,6 +1,6 @@
 import json, time
 from .a2a import Agent, Task
-from . import approvals, runbooks as RB
+from . import approvals, policy, runbooks as RB
 from . import telemetry
 
 READ_TOOLS = {"check_disk", "check_cpu", "check_service", "check_memory", "read_events"}
@@ -13,6 +13,7 @@ REPORT_KEYWORDS = [("memory", {"memory", "ram", "leak", "oom"}), ("disk", {"disk
 SEVERITY = {"critical": ("1", "1"), "major": ("2", "2"), "minor": ("3", "3")}
 
 class AgentError(Exception): pass
+class WorkflowBudgetExceeded(AgentError): pass
 def short(res, limit=300): return json.dumps(res, separators=(",", ":"))[:limit]
 def ev_line(e): return f"{e['tool']}({', '.join(f'{k}={v}' for k, v in e['params'].items())}) -> {short(e['result'])}"
 
@@ -40,7 +41,9 @@ class Diagnostic(Agent):
                 res = getattr(self.t, s["tool"])(**s.get("params", {}))
                 if isinstance(res, dict) and "healthy" in res: telemetry.set_attr(sp, "healthy", bool(res["healthy"]))
             telemetry.counter("tool.call.count", tool=s["tool"], mode="read")
-            out.append({"tool": s["tool"], "params": s.get("params", {}), "result": res})
+            out.append({"tool": s["tool"], "params": s.get("params", {}), "result": res, "mode": "read",
+                        "observed_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "evidence_id": f"E{len(out) + 1}",
+                        "healthy": res.get("healthy") if isinstance(res, dict) else None})
         return {"evidence": out}
 
 # ---------------- Remediation: the ONLY agent that can change the server ----------------
@@ -53,19 +56,36 @@ class Remediation(Agent):
         i = task.input; a, tgt, tk = i["action"], i["target"], i["ticket"]
         if a not in ACTION_CATALOG or tgt not in ACTION_CATALOG[a]:
             raise PermissionError(f"action {a}({tgt}) is not in the approved catalog")
-        if self._attempts(tk, a) >= 1: raise PermissionError(f"{a} already run once for {tk}; second attempt must go to L2")
-        task.state = "input-required"
-        ap = self.bus.send(self.name, "request_approval", {"action": a, "target": tgt, "ticket": tk, "summary": i["summary"]})
-        if ap.state != "completed": raise PermissionError(f"approval not granted: {ap.error}")
-        p, err = approvals.verify(ap.output["token"], a, tgt, tk)
-        if err: raise PermissionError(f"approval rejected by remediation: {err}")
+        tier = policy.tier(a)
+        aid = self.store.approval_open(tk, a, tgt, tier) if self.store else None
+        def audit(status, **kw):
+            if aid: self.store.approval_update(aid, status, **kw)
+        if tier == policy.RESTRICTED:
+            audit("denied", detail="restricted by policy"); raise PermissionError(f"{a} is restricted by policy and cannot be run by FURY")
+        if self._attempts(tk, a) >= 1:
+            audit("denied", detail="second attempt"); raise PermissionError(f"{a} already run once for {tk}; second attempt must go to L2")
+        if tier == policy.HUMAN:
+            task.state = "input-required"
+            ap = self.bus.send(self.name, "request_approval", {"action": a, "target": tgt, "ticket": tk, "summary": i["summary"]})
+            if ap.state != "completed":
+                audit("rejected" if "rejected" in ap.error else "expired", detail=ap.error); raise PermissionError(f"approval not granted: {ap.error}")
+            p, err = approvals.verify(ap.output["token"], a, tgt, tk)
+            if err: audit("denied", detail=err); raise PermissionError(f"approval rejected by remediation: {err}")
+            audit("approved", approver=p["approver"])
+            approver = p["approver"]
+        else:   # policy tier: bounded, explicitly enabled by config; still audited
+            approver = "policy"; audit("approved", approver=approver, detail="policy tier (no human required by configuration)")
         task.state = "working"
-        with telemetry.span("tool.call", tool=a, mode="act") as sp:
-            result = self.t.act(a, tgt)
+        try:
+            with telemetry.span("tool.call", tool=a, mode="act") as sp:
+                result = self.t.act(a, tgt)
+        except Exception as e:
+            audit("failed", detail=f"{type(e).__name__}: {e}"); raise
         telemetry.counter("tool.call.count", tool=a, mode="act")
         self.done[(tk, a)] = self.done.get((tk, a), 0) + 1
         if self.store: self.store.record_attempt(tk, a)
-        return {"result": result, "approver": p["approver"], "approved_at": time.strftime("%Y-%m-%d %H:%M:%S")}
+        audit("executed")
+        return {"result": result, "approver": approver, "approved_at": time.strftime("%Y-%m-%d %H:%M:%S")}
 
 # ---------------- ITSM: owns ServiceNow ----------------
 class ITSM(Agent):
@@ -156,12 +176,21 @@ class Triage(Agent):
             "instance": task.input.get("instance", "i-demo"), "severity": "major"}))
     def ok(self, skill, data):
         t = self.bus.send(self.name, skill, data)
-        if t.state != "completed": raise AgentError(f"{skill}: {t.error}")
+        if t.state != "completed":
+            if t.error.startswith("budget exceeded"): raise WorkflowBudgetExceeded(t.error)
+            raise AgentError(f"{skill}: {t.error}")
         return t.output
     def handle_alert(self, task):
+        """Budget guard: if the workflow runs out of budget at any point, stop and hand it to a human."""
+        self._rb = None
+        try: return self._handle_alert(task)
+        except WorkflowBudgetExceeded as e:
+            telemetry.counter("triage.outcome", outcome="budget_exceeded")
+            return self.escalate(task.input, self.ticket, self._rb, f"workflow stopped by its budget ({e}); needs human review", [])
+    def _handle_alert(self, task):
         a = task.input; query = f"{a['name']} {a['description']}"
         self.warnings, self.ticket = [], None
-        plan = self.ok("match_runbook", {"query": query}); rb = plan["runbook"]
+        plan = self.ok("match_runbook", {"query": query}); rb = plan["runbook"]; self._rb = rb
         steps = rb["steps"] if rb else []
         pre = []
         for s in steps:
