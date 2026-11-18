@@ -153,7 +153,7 @@ class Triage(Agent):
         metric = next((m for m, kw in REPORT_KEYWORDS if words & kw), None)
         return self.handle_alert(Task(skill="handle_alert", sender="chat", input={
             "name": f"Report-{metric or 'general'}", "description": text, "metric": metric,
-            "instance": task.input.get("instance", "i-00654e3403673c840"), "severity": "major"}))
+            "instance": task.input.get("instance", "i-demo"), "severity": "major"}))
     def ok(self, skill, data):
         t = self.bus.send(self.name, skill, data)
         if t.state != "completed": raise AgentError(f"{skill}: {t.error}")

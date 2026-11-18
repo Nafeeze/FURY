@@ -3,7 +3,7 @@
 ## A. AWS (about 10 min, all in the browser)
 1. Open the AWS console, region ap-south-2, click the CloudShell icon (>_) in the top bar.
 2. CloudShell menu Actions > Upload file: upload `aws_setup/setup_aws.py`, `aws_setup/ec2_setup.ps1`, `aws_setup/faults.py` (same folder).
-3. Run: `python3 setup_aws.py --region ap-south-2 --instance i-00654e3403673c840`
+3. Run: `python3 setup_aws.py --region ap-south-2 --instance <your-instance-id>`
 4. It prints two key pairs (shown once). Copy them into your laptop `.env`. Last line must show AWSPowerShell(Write-CWMetricData)=True.
 
 ## B. Slack (about 15 min)

@@ -1,7 +1,7 @@
 """Break the EC2 on purpose (run in CloudShell, as YOU; the agents have no access to this).
-   python3 faults.py disk_full | service_down | cpu_runaway | memory_pressure | reset  [--region ap-south-2 --instance i-...]"""
+   python3 faults.py disk_full | service_down | cpu_runaway | memory_pressure | reset  --instance i-... [--region ap-south-2]"""
 import sys, time, argparse, boto3
-ap = argparse.ArgumentParser(); ap.add_argument("fault"); ap.add_argument("--region", default="ap-south-2"); ap.add_argument("--instance", default="i-00654e3403673c840")
+ap = argparse.ArgumentParser(); ap.add_argument("fault"); ap.add_argument("--region", default="ap-south-2"); ap.add_argument("--instance", required=True, help="EC2 instance id, e.g. i-0123456789abcdef0")
 a = ap.parse_args()
 S = {
  "disk_full": r"""$d = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='F:'"

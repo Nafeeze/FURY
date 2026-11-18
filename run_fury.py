@@ -18,7 +18,7 @@ def main():
     load_env(); demo = "--demo" in sys.argv
     mode = {k: ("fake" if demo else os.getenv(f"FURY_{k.upper()}", "real").lower()) for k in ("snow", "target", "chat")}
     approvers = [x.strip() for x in os.getenv("SLACK_APPROVER_IDS", "U0CAZH32V2T").split(",") if x.strip()]
-    inst = os.getenv("AWS_INSTANCE_ID", "i-00654e3403673c840"); region = os.getenv("AWS_REGION", "ap-south-2")
+    inst = os.getenv("AWS_INSTANCE_ID", "i-demo"); region = os.getenv("AWS_REGION", "ap-south-2")
     from fury.adapters import FakeTarget, FakeSnow, FakeChat, SnowClient
     kw, poller, fake_target = {}, None, None
     # ---- ServiceNow ----
@@ -37,6 +37,7 @@ def main():
             def pending(s): return [{"request": r, **v} for r, v in s._p.items()]
         chat = DemoChat()
     # ---- server ----
+    if mode["target"] == "real" and inst == "i-demo": sys.exit("Set AWS_INSTANCE_ID in .env (your EC2 instance id) or use FURY_TARGET=fake / --demo")
     diag = None
     if mode["target"] == "real":
         from boto3 import Session

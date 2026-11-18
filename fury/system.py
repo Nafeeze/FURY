@@ -23,7 +23,7 @@ def build(target=None, snow=None, chat=None, approvers=("U0CAZH32V2T",), rb_dir=
     triage = bus.register(Triage(bus))
     return bus, triage, dict(target=read_target if read_target is act_target else None, snow=snow, chat=chat, read_target=read_target, act_target=act_target)
 
-def alert(name, description, metric, instance="i-00654e3403673c840", severity="major"):
+def alert(name, description, metric, instance="i-demo", severity="major"):
     return {"name": name, "description": description, "metric": metric, "instance": instance, "severity": severity}
 ALERTS = {
     "disk_full": alert("Fury-Disk-F-High", "Disk F: usage above 90%", "disk"),

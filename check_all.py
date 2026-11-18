@@ -13,14 +13,14 @@ def step(name, fn):
     if ONLY and group(name) not in (ONLY, "core"): return
     try: detail = fn(); res.append(True); print(f"PASS  {name}" + (f"  ({detail})" if detail else ""))
     except Exception as e: res.append(False); print(f"FAIL  {name}  -> {type(e).__name__}: {str(e)[:220]}")
-need = ["SNOW_URL", "SNOW_USER", "SNOW_PASSWORD", "AWS_DIAG_KEY_ID", "AWS_DIAG_SECRET", "AWS_REMED_KEY_ID", "AWS_REMED_SECRET", "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "APPROVAL_SECRET"]
+need = ["AWS_INSTANCE_ID", "SNOW_URL", "SNOW_USER", "SNOW_PASSWORD", "AWS_DIAG_KEY_ID", "AWS_DIAG_SECRET", "AWS_REMED_KEY_ID", "AWS_REMED_SECRET", "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "APPROVAL_SECRET"]
 def env():
     keys = [k for k in need if not ONLY or k.startswith({"snow": "SNOW_", "aws": "AWS_", "slack": "SLACK_"}[ONLY])]
     miss = [k for k in keys if not os.getenv(k)]
     if miss: raise RuntimeError("missing in .env: " + ", ".join(miss))
     return f"{len(keys)} keys present"
 step(".env has every key", env)
-REG, INST = os.getenv("AWS_REGION", "ap-south-2"), os.getenv("AWS_INSTANCE_ID", "i-00654e3403673c840")
+REG, INST = os.getenv("AWS_REGION", "ap-south-2"), os.getenv("AWS_INSTANCE_ID", "")
 step("python packages", lambda: [__import__(m) for m in (("flask",) if ONLY == "snow" else ("flask", "boto3", "slack_bolt"))] and "required packages import")
 
 # ---- ServiceNow: create, note, resolve a throw-away incident ----
@@ -84,6 +84,16 @@ def metrics():
     if not m: raise RuntimeError("no Fury metrics yet: wait 2-3 minutes after setup, or the metrics publisher on the EC2 is failing")
     return f"{len({x['MetricName'] for x in m})} metrics flowing"
 step("EC2 is publishing metrics", metrics)
+def fresh():
+    import datetime as dt
+    cw, now, stale = sess("AWS_DIAG").client("cloudwatch"), dt.datetime.now(dt.timezone.utc), []
+    for m in ("DiskUsedPercent", "W3SVCRunning", "CpuPercent", "MemUsedPercent"):
+        r = cw.get_metric_statistics(Namespace="Fury", MetricName=m, Dimensions=[{"Name": "InstanceId", "Value": INST}],
+                                     StartTime=now - dt.timedelta(minutes=6), EndTime=now, Period=60, Statistics=["Maximum"])["Datapoints"]
+        if not r: stale.append(m)
+    if stale: raise RuntimeError(f"no datapoint in the last 6 min for {', '.join(stale)} on {INST}: publisher not running, wrong AWS_INSTANCE_ID/region, or instance lacks cloudwatch:PutMetricData (see C:/fury/publish.log on the EC2)")
+    return "all 4 metrics have datapoints in the last 6 minutes for this instance"
+step("Metrics are FRESH for this instance (alarms look OK even when stale)", fresh)
 
 # ---- Slack ----
 def slack():

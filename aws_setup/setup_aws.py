@@ -1,5 +1,5 @@
 """Run ONCE in AWS CloudShell (console top bar, the >_ icon). It uses your console admin login, so no keys are typed anywhere.
-   python3 setup_aws.py --region ap-south-2 --instance i-00654e3403673c840
+   python3 setup_aws.py --region ap-south-2 --instance i-0123456789abcdef0
 Creates: 8 SSM documents (5 read-only checks, 3 approved actions), 2 IAM users with separate least-privilege policies,
 4 CloudWatch alarms, and configures the EC2 (IIS, F: drive, metrics publisher)."""
 import argparse, json, time, pathlib, boto3
