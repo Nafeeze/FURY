@@ -1,5 +1,6 @@
-import sys, time, unittest, json
+import os, sys, time, unittest, json
 from pathlib import Path
+from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fury import system, telemetry
 from fury.adapters import FakeTarget, FakeSnow, FakeChat
@@ -12,7 +13,8 @@ def run_chat(msg, fault=None, script=None):
     if fault: t.inject(fault)
     bus, triage, env = system.build(target=t, snow=snow, chat=chat)
     c = create_app(Ctx(bus, triage, snow, chat, "i-1", t), demo=True).test_client()
-    rid = c.post("/api/chat", json={"message": msg}).get_json()["run"]
+    with patch.dict(os.environ, {"FURY_CHAT_MODE": "full"}):
+        rid = c.post("/api/chat", json={"message": msg}).get_json()["run"]
     for _ in range(100):
         v = c.get("/api/run/" + rid).get_json()
         if v["state"] in ("done", "error"): break

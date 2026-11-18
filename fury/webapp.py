@@ -44,6 +44,9 @@ HELP_TEXT = ("I am FURY, the SRE assistant for this server. I can:\n"
              "Any change on the server needs the SRE Admin to approve on Slack first.")
 OFF_TOPIC = "I can only help with server operations: reporting a problem, incident status, or how we fix something. Try \"the website is down\" or \"status of INC0010020\"."
 CLARIFY = "Which area is affected: the website or a service, disk space, CPU, or memory? Tell me what you see and I will check it."
+REPORT_DISABLED = "Incident reporting is disabled in read-only mode. You can still check incident status, list incidents, or ask how-to questions."
+SESSION_BUSY = "Your previous request is still running. Please wait."
+SESSION_IDLE_TTL = 30 * 60
 
 def metric_of(text):
     words = set(RB.tokens(text)) | set(text.lower().replace("?", " ").replace(",", " ").split())
@@ -61,6 +64,28 @@ def classify(text):
     if metric and signal: return "report"
     if metric or signal: return "clarify"
     return "off_topic"
+
+class _ChatSessionPolicy:
+    def __init__(self, idle_ttl=SESSION_IDLE_TTL, clock=time.monotonic):
+        self.idle_ttl, self._clock = idle_ttl, clock
+        self._last_activity, self._in_flight = {}, set()
+        self._lock = threading.Lock()
+
+    def begin(self, session_id, reset_context):
+        with self._lock:
+            if session_id in self._in_flight: return False
+            now = self._clock()
+            last = self._last_activity.get(session_id)
+            if last is None or now - last > self.idle_ttl:
+                reset_context(session_id)
+            self._last_activity[session_id] = now
+            self._in_flight.add(session_id)
+            return True
+
+    def finish(self, session_id):
+        with self._lock:
+            self._in_flight.discard(session_id)
+            self._last_activity[session_id] = self._clock()
 
 def incident_status(ctx, text):
     n = INC_RE.search(text).group(0).upper()
@@ -91,21 +116,24 @@ class Ctx:
     def __init__(self, bus, triage, snow, chat, instance, demo_target=None):
         self.bus, self.triage, self.snow, self.chat, self.instance, self.demo_target = bus, triage, snow, chat, instance, demo_target
         self.runs, self.lock, self.poller = {}, threading.Lock(), None
-    def submit(self, skill, data, source, label):
+    def submit(self, skill, data, source, label, on_complete=None):
         rid = uuid.uuid4().hex[:8]
         run = self.runs[rid] = {"id": rid, "label": label, "source": source, "state": "queued", "start": None, "end": None, "out": None, "at": time.strftime("%H:%M:%S")}
         snap = telemetry.capture()   # the worker thread continues the caller's trace (chat request or alarm)
         def work():
-            with telemetry.attach(snap), telemetry.span("run", run_id=rid, source=source, skill=skill, label=label) as sp:
-                run["trace_id"] = sp["trace_id"]
-                with self.lock:
-                    run.update(state="running", start=len(self.bus.trace))
-                    t = self.bus.send(source, skill, data, to="triage")
-                    run.update(state="done" if t.state == "completed" else "error", end=len(self.bus.trace),
-                               out=t.output if t.state == "completed" else {"outcome": "error", "reason": t.error})
-                    o = (run["out"] or {}).get("outcome")
-                    telemetry.set_attr(sp, "outcome", o); telemetry.set_attr(sp, "ticket", (run["out"] or {}).get("ticket"))
-                    if run["state"] == "error": sp["ok"], sp["error"] = False, telemetry.redact(t.error, 120)
+            try:
+                with telemetry.attach(snap), telemetry.span("run", run_id=rid, source=source, skill=skill, label=label) as sp:
+                    run["trace_id"] = sp["trace_id"]
+                    with self.lock:
+                        run.update(state="running", start=len(self.bus.trace))
+                        t = self.bus.send(source, skill, data, to="triage")
+                        run.update(state="done" if t.state == "completed" else "error", end=len(self.bus.trace),
+                                   out=t.output if t.state == "completed" else {"outcome": "error", "reason": t.error})
+                        o = (run["out"] or {}).get("outcome")
+                        telemetry.set_attr(sp, "outcome", o); telemetry.set_attr(sp, "ticket", (run["out"] or {}).get("ticket"))
+                        if run["state"] == "error": sp["ok"], sp["error"] = False, telemetry.redact(t.error, 120)
+            finally:
+                if on_complete: on_complete()
         threading.Thread(target=work, daemon=True).start(); return rid
     def answer(self, label, message):
         """A chat reply that needs no investigation: no agents, no ticket, not listed under recent runs."""
@@ -123,6 +151,7 @@ class Ctx:
 
 def create_app(ctx, demo=False):
     app = Flask(__name__, static_folder=None); ui = Path(__file__).resolve().parent.parent / "ui"
+    session_policy = _ChatSessionPolicy()
     @app.get("/")
     def index(): return send_from_directory(ui, "index.html")
     @app.post("/api/chat")
@@ -130,24 +159,42 @@ def create_app(ctx, demo=False):
         text = (request.get_json(silent=True) or {}).get("message", "").strip()
         if not text: return jsonify(error="empty message"), 400
         session_id = (request.headers.get("X-Fury-Session") or "default")[:80]
-        # One root span per chat request. Only shapes are recorded (length, intent), never the message itself.
-        with telemetry.span("chat.request", source="chat", text_len=len(text)) as root:
-            verdict = LLM.classify(text, session_id=session_id)  # None if FURY_LLM is off, or on any failure: falls back to rules below
-            intent = verdict["intent"] if verdict else classify(text)
-            telemetry.set_attr(root, "intent", intent); telemetry.set_attr(root, "classifier", "llm" if verdict else "rules")
-            telemetry.counter("chat.intent", intent=intent, classifier="llm" if verdict else "rules")
-            if intent == "report":
-                rid = ctx.submit("handle_report", {"text": text, "instance": ctx.instance}, "chat", text[:60])
+        if not session_policy.begin(session_id, LLM.SESSIONS.reset):
+            return jsonify(run=ctx.answer(text[:60], SESSION_BUSY))
+        handed_off = False
+        try:
+            # One root span per chat request. Only shapes are recorded (length, intent), never the message itself.
+            with telemetry.span("chat.request", source="chat", text_len=len(text)) as root:
+                verdict = LLM.classify(text, session_id=session_id)  # None if FURY_LLM is off, or on any failure: falls back to rules below
+                intent = verdict["intent"] if verdict else classify(text)
+                telemetry.set_attr(root, "intent", intent); telemetry.set_attr(root, "classifier", "llm" if verdict else "rules")
+                telemetry.counter("chat.intent", intent=intent, classifier="llm" if verdict else "rules")
+                if intent == "report":
+                    try:
+                        chat_mode = os.getenv("FURY_CHAT_MODE", "readonly").strip().lower()
+                    except Exception as exc:
+                        telemetry.counter("chat.mode_check.error", error=type(exc).__name__)
+                        chat_mode = "readonly"
+                    if chat_mode != "full":
+                        rid = ctx.answer(text[:60], REPORT_DISABLED)
+                        ctx.runs[rid]["trace_id"] = root["trace_id"]
+                        return jsonify(run=rid)
+                    rid = ctx.submit("handle_report", {"text": text, "instance": ctx.instance}, "chat", text[:60],
+                                     on_complete=lambda: session_policy.finish(session_id))
+                    handed_off = True
+                    ctx.runs[rid]["trace_id"] = root["trace_id"]
+                    return jsonify(run=rid)
+                if verdict and verdict.get("reply") and intent in ("help", "greeting", "off_topic", "clarify", "howto"):
+                    reply = verdict["reply"]
+                else:
+                    reply = {"greeting": "You are welcome." if re.match(r"^(thanks|thank you|thx)", text.strip().lower()) else "Goodbye." if text.strip().lower().startswith("bye") else "Hello. Tell me what is wrong with the server, or ask about an incident.", "help": HELP_TEXT, "clarify": CLARIFY,
+                             "off_topic": OFF_TOPIC}.get(intent) or (incident_status(ctx, text) if intent == "incident_status" else incident_list(ctx) if intent == "incident_list" else howto_reply(ctx, text))
+                rid = ctx.answer(text[:60], reply)
                 ctx.runs[rid]["trace_id"] = root["trace_id"]
                 return jsonify(run=rid)
-            if verdict and verdict.get("reply") and intent in ("help", "greeting", "off_topic", "clarify", "howto"):
-                reply = verdict["reply"]
-            else:
-                reply = {"greeting": "You are welcome." if re.match(r"^(thanks|thank you|thx)", text.strip().lower()) else "Goodbye." if text.strip().lower().startswith("bye") else "Hello. Tell me what is wrong with the server, or ask about an incident.", "help": HELP_TEXT, "clarify": CLARIFY,
-                         "off_topic": OFF_TOPIC}.get(intent) or (incident_status(ctx, text) if intent == "incident_status" else incident_list(ctx) if intent == "incident_list" else howto_reply(ctx, text))
-            rid = ctx.answer(text[:60], reply)
-            ctx.runs[rid]["trace_id"] = root["trace_id"]
-            return jsonify(run=rid)
+        finally:
+            if not handed_off:
+                session_policy.finish(session_id)
     @app.post("/api/chat/reset")
     def chat_reset():
         session_id = (request.headers.get("X-Fury-Session") or "default")[:80]
