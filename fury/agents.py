@@ -1,6 +1,6 @@
 import json, time
 from .a2a import Agent, Task
-from . import approvals, runbooks as RB
+from . import approvals, policy, runbooks as RB
 from . import telemetry
 
 READ_TOOLS = {"check_disk", "check_cpu", "check_service", "check_memory", "read_events"}
@@ -54,19 +54,36 @@ class Remediation(Agent):
         i = task.input; a, tgt, tk = i["action"], i["target"], i["ticket"]
         if a not in ACTION_CATALOG or tgt not in ACTION_CATALOG[a]:
             raise PermissionError(f"action {a}({tgt}) is not in the approved catalog")
-        if self._attempts(tk, a) >= 1: raise PermissionError(f"{a} already run once for {tk}; second attempt must go to L2")
-        task.state = "input-required"
-        ap = self.bus.send(self.name, "request_approval", {"action": a, "target": tgt, "ticket": tk, "summary": i["summary"]})
-        if ap.state != "completed": raise PermissionError(f"approval not granted: {ap.error}")
-        p, err = approvals.verify(ap.output["token"], a, tgt, tk)
-        if err: raise PermissionError(f"approval rejected by remediation: {err}")
+        tier = policy.tier(a)
+        aid = self.store.approval_open(tk, a, tgt, tier) if self.store else None
+        def audit(status, **kw):
+            if aid: self.store.approval_update(aid, status, **kw)
+        if tier == policy.RESTRICTED:
+            audit("denied", detail="restricted by policy"); raise PermissionError(f"{a} is restricted by policy and cannot be run by FURY")
+        if self._attempts(tk, a) >= 1:
+            audit("denied", detail="second attempt"); raise PermissionError(f"{a} already run once for {tk}; second attempt must go to L2")
+        if tier == policy.HUMAN:
+            task.state = "input-required"
+            ap = self.bus.send(self.name, "request_approval", {"action": a, "target": tgt, "ticket": tk, "summary": i["summary"]})
+            if ap.state != "completed":
+                audit("rejected" if "rejected" in ap.error else "expired", detail=ap.error); raise PermissionError(f"approval not granted: {ap.error}")
+            p, err = approvals.verify(ap.output["token"], a, tgt, tk)
+            if err: audit("denied", detail=err); raise PermissionError(f"approval rejected by remediation: {err}")
+            audit("approved", approver=p["approver"])
+            approver = p["approver"]
+        else:   # policy tier: bounded, explicitly enabled by config; still audited
+            approver = "policy"; audit("approved", approver=approver, detail="policy tier (no human required by configuration)")
         task.state = "working"
-        with telemetry.span("tool.call", tool=a, mode="act") as sp:
-            result = self.t.act(a, tgt)
+        try:
+            with telemetry.span("tool.call", tool=a, mode="act") as sp:
+                result = self.t.act(a, tgt)
+        except Exception as e:
+            audit("failed", detail=f"{type(e).__name__}: {e}"); raise
         telemetry.counter("tool.call.count", tool=a, mode="act")
         self.done[(tk, a)] = self.done.get((tk, a), 0) + 1
         if self.store: self.store.record_attempt(tk, a)
-        return {"result": result, "approver": p["approver"], "approved_at": time.strftime("%Y-%m-%d %H:%M:%S")}
+        audit("executed")
+        return {"result": result, "approver": approver, "approved_at": time.strftime("%Y-%m-%d %H:%M:%S")}
 
 # ---------------- ITSM: owns ServiceNow ----------------
 class ITSM(Agent):

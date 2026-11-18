@@ -228,6 +228,10 @@ def create_app(ctx, demo=False):
         except Exception as e: return jsonify(ok=False, error=str(e), notes=[])
     @app.get("/api/approvals")
     def approvals(): return jsonify(ctx.chat.pending())
+    @app.get("/api/approvals/history")
+    def approvals_history():
+        """Durable audit trail of every remediation request and its outcome (needs FURY_DB)."""
+        return jsonify(enabled=bool(ctx.store), history=ctx.store.approvals_history() if ctx.store else [])
     @app.get("/api/status")
     def status():
         return jsonify(demo=demo, poller_error=getattr(ctx.poller, "last_error", ""), agents=sorted(ctx.bus.agents), instance=ctx.instance)
