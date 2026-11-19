@@ -81,7 +81,7 @@ $inst = '__INSTANCE__'; $region = '__REGION__'
 Import-Module AWSPowerShell -ErrorAction SilentlyContinue
 function Put($name, $value) {
   $d = New-Object Amazon.CloudWatch.Model.Dimension; $d.Name = 'InstanceId'; $d.Value = $inst
-  $m = New-Object Amazon.CloudWatch.Model.MetricDatum; $m.MetricName = $name; $m.Value = [double]$value; $m.Dimensions.Add($d); $m.Timestamp = (Get-Date).ToUniversalTime()
+  $m = New-Object Amazon.CloudWatch.Model.MetricDatum; $m.MetricName = $name; $m.Value = [double]$value; $m.Dimensions = [System.Collections.Generic.List[Amazon.CloudWatch.Model.Dimension]]@($d); $m.Timestamp = (Get-Date).ToUniversalTime()
   Write-CWMetricData -Namespace 'Fury' -MetricData $m -Region $region
 }
 $d = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='F:'"

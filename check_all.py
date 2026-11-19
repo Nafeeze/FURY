@@ -80,9 +80,15 @@ def alarms():
     return ", ".join(f"{x['AlarmName']}={x['StateValue']}" for x in a)
 step("CloudWatch alarms exist", alarms)
 def metrics():
-    m = sess("AWS_DIAG").client("cloudwatch").list_metrics(Namespace="Fury")["Metrics"]
-    if not m: raise RuntimeError("no Fury metrics yet: wait 2-3 minutes after setup, or the metrics publisher on the EC2 is failing")
-    return f"{len({x['MetricName'] for x in m})} metrics flowing"
+    # Uses GetMetricStatistics (which the read-only user already has) instead of ListMetrics, so the permission stays minimal.
+    import datetime
+    cw = sess("AWS_DIAG").client("cloudwatch"); now = datetime.datetime.now(datetime.timezone.utc); live, missing = [], []
+    for name in ("DiskUsedPercent", "W3SVCRunning", "CpuPercent", "MemUsedPercent"):
+        pts = cw.get_metric_statistics(Namespace="Fury", MetricName=name, Dimensions=[{"Name": "InstanceId", "Value": INST}],
+                                       StartTime=now - datetime.timedelta(minutes=15), EndTime=now, Period=60, Statistics=["Maximum"])["Datapoints"]
+        (live if pts else missing).append(name)
+    if missing: raise RuntimeError("no recent data for " + ", ".join(missing) + ": wait 2-3 minutes after setup, or the metrics publisher on the EC2 is failing")
+    return f"{len(live)} of 4 metrics flowing in the last 15 minutes"
 step("EC2 is publishing metrics", metrics)
 
 # ---- Slack ----
