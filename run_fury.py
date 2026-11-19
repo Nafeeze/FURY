@@ -16,6 +16,9 @@ def load_env(path=".env"):
 def main():
     """Each component is chosen independently: FURY_SNOW / FURY_TARGET / FURY_CHAT = real | fake  (--demo makes all three fake)."""
     load_env(); demo = "--demo" in sys.argv
+    from fury import secrets as SECRETS
+    try: SECRETS.load()
+    except (ValueError, RuntimeError) as e: sys.exit(f"secrets: {e}")
     mode = {k: ("fake" if demo else os.getenv(f"FURY_{k.upper()}", "real").lower()) for k in ("snow", "target", "chat")}
     approvers = [x.strip() for x in os.getenv("SLACK_APPROVER_IDS", "U0CAZH32V2T").split(",") if x.strip()]
     inst = os.getenv("AWS_INSTANCE_ID", "i-00654e3403673c840"); region = os.getenv("AWS_REGION", "ap-south-2")
@@ -68,8 +71,19 @@ def main():
                  + chr(10) + "Create a token:  python -m fury.auth new <name> admin   then set FURY_API_TOKENS in .env"
                  + chr(10) + "(or set FURY_AUTH=off to run unauthenticated on a trusted machine, at your own risk).")
     app = create_app(ctx, demo=fake_target is not None, auth=api_auth)
+    slo_every = float(os.getenv("FURY_SLO_ALERT_SECONDS", "60"))   # 0 disables
+    if slo_every > 0:
+        from fury.slo_alert import SloWatcher
+        ops = os.getenv("SLACK_OPS_CHANNEL") or os.getenv("SLACK_L2_CHANNEL", "#sre-l2")
+        threading.Thread(target=SloWatcher(lambda m: chat.post(ops, m), interval=slo_every, audit=ctx.audit).run_forever, daemon=True).start()
     print("API auth: " + ("ON (" + ", ".join(e["name"] + "/" + e["role"] for e in api_auth.entries) + ")" if api_auth else "OFF"))
-    print(f"FURY running  snow={mode['snow']}  server={mode['target']}  chat={mode['chat']}  -> http://127.0.0.1:8080")
-    app.run(host="127.0.0.1", port=8080, threaded=True)
+    host, port = os.getenv("FURY_HOST", "127.0.0.1"), int(os.getenv("FURY_PORT", "8080"))
+    print(f"FURY running  snow={mode['snow']}  server={mode['target']}  chat={mode['chat']}  -> http://{host}:{port}")
+    if host not in ("127.0.0.1", "localhost", "::1"): print("WARNING: listening beyond localhost. Terminate TLS in front of FURY (see deploy/Caddyfile) and never expose this port directly.")
+    try:
+        from waitress import serve   # production WSGI server when installed (pip install waitress); Flask's dev server otherwise
+        serve(app, host=host, port=port, threads=16)
+    except ImportError:
+        app.run(host=host, port=port, threaded=True)
 
 if __name__ == "__main__": main()

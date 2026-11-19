@@ -1,0 +1,13 @@
+# TLS termination + automatic certificates in front of FURY.  Replace the hostname; Caddy obtains and renews the cert.
+# Run Caddy on the same host as FURY and keep FURY on 127.0.0.1:8080 (default), so it is never reachable except through TLS.
+fury.example.com {
+	encode gzip
+	reverse_proxy 127.0.0.1:8080
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+	# Optional second factor in front of the app: restrict to your office / VPN range.
+	# @blocked not remote_ip 203.0.113.0/24
+	# respond @blocked 403
+}

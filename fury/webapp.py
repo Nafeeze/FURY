@@ -176,6 +176,16 @@ def create_app(ctx, demo=False, auth=None):
             ok, status, user, msg = auth.check(request.method, request.path, request.headers.get("Authorization"), request.remote_addr)
             g.user = user["name"] if user else None
             if not ok: return jsonify(error=msg), status
+    @app.after_request
+    def _security_headers(resp):
+        """Defence in depth for the browser: no framing, no MIME sniffing, same-origin only, API responses never cached."""
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        resp.headers.setdefault("X-Frame-Options", "DENY")
+        resp.headers.setdefault("Referrer-Policy", "no-referrer")
+        resp.headers.setdefault("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+                                "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+        if request.path.startswith("/api/"): resp.headers["Cache-Control"] = "no-store"
+        return resp
     def actor(session_id): return getattr(g, "user", None) or session_ref(session_id)
     def link(rid, root, session_id):
         run = ctx.runs[rid]; run["trace_id"] = root["trace_id"]; run["session"] = session_ref(session_id); ctx.save(run)

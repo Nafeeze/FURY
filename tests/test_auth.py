@@ -57,6 +57,13 @@ class EndpointTests(unittest.TestCase):
 
     def test_static_page_is_public(self): self.assertEqual(make()[1].get("/").status_code, 200)
 
+    def test_security_headers_on_page_and_api(self):
+        _, c = make()
+        for r in (c.get("/"), c.get("/api/runs", headers={"Authorization": "Bearer " + TOK["admin"]})):
+            self.assertEqual(r.headers["X-Content-Type-Options"], "nosniff"); self.assertEqual(r.headers["X-Frame-Options"], "DENY")
+            self.assertIn("frame-ancestors 'none'", r.headers["Content-Security-Policy"]); self.assertEqual(r.headers["Referrer-Policy"], "no-referrer")
+        self.assertEqual(c.get("/api/runs", headers={"Authorization": "Bearer " + TOK["admin"]}).headers["Cache-Control"], "no-store")
+
     def test_viewer_reads_but_cannot_chat_or_see_audit(self):
         _, c = make()
         self.assertEqual(c.get("/api/runs", headers=bearer("viewer")).status_code, 200)

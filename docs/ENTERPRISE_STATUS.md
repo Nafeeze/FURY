@@ -1,8 +1,10 @@
 # FURY: Enterprise Readiness Status
 
 Honest status against the Architecture and Engineering Blueprint v1.0. "Verified" means covered by automated tests that
-ran green in this repo (`python -m unittest discover -s tests`) and, where noted, a real server run. **Nothing in this
-file has been verified against live AWS, ServiceNow or Slack**: those accounts did not exist at the time of writing.
+ran green in this repo (`python -m unittest discover -s tests`) and, where noted, a real server run. **Live verification as of 2026-11-19:**
+ServiceNow (create, work note, resolve, assign, recurrence handling) and Slack (approval post, approver check, Socket Mode, a real
+approve-and-resolve run) were exercised against real accounts. **AWS has not been verified live**: the server side was simulated
+because no AWS credentials were available. Everything marked UNVERIFIED below was written and unit-tested but never run for real.
 
 ## Phase scorecard
 
@@ -13,10 +15,10 @@ file has been verified against live AWS, ServiceNow or Slack**: those accounts d
 | 2 | Durable orchestration | Mostly done | SQLite durable runs, restart recovery (interrupted runs marked failed, pending approvals expired), per-workflow hop/time/agent budgets, concurrent workflows safe | Workflow **resume** after a restart (interrupted work is failed and escalated, not continued), LangGraph (not adopted: the existing bus already does bounded, observable delegation; migration not justified yet), Postgres |
 | 3 | Specialized agents | Done for current scope | Six agents with distinct, enforced roles; versioned input contracts validated before any agent runs; structured, timestamped evidence | Output schemas; model-assisted reasoning agents (everything is deterministic by design today) |
 | 4 | Intelligence and RAG | Foundation only | Runbook versioning and lifecycle (active/draft/retired), citations with version, governed retrieval (BM25 + fuzzy, RRF, access and status filters before ranking, abstains without evidence, staleness flag), golden set (recall@3 1.0, MRR 1.0, 17 queries, 4 unsupported queries correctly empty) | Embeddings and pgvector, ServiceNow knowledge ingestion, freshness reconciliation jobs, a larger golden set from real incidents. The current golden set is small and author-written: treat it as a regression baseline, not proof of real-world accuracy |
-| 5 | Enterprise integrations | Built, **unverified live** | Real ServiceNow, AWS (read/act IAM split) and Slack adapters; resilience wrapper (read retries, never retry writes, circuit breaker); `/api/health`; AWS/ServiceNow setup guide and scripts (branch `feature/aws-env-setup`) | **Any live run**; MCP (direct API clients used instead); rate limiting |
+| 5 | Enterprise integrations | ServiceNow and Slack **verified live**; AWS **unverified** | Real ServiceNow, AWS (read/act IAM split) and Slack adapters; resilience wrapper (read retries, never retry writes, circuit breaker); `/api/health`; AWS/ServiceNow setup guide and scripts (branch `feature/aws-env-setup`) | **Live AWS run** (no credentials yet); MCP (direct API clients used instead); rate limiting |
 | 6 | Governed autonomy | Done for current actions | Risk tiers with deny-by-default (`fury/policy.py`), human approval with signed expiring tokens bound to action/target/ticket, durable audit trail of every request and outcome, one-attempt-then-escalate that survives restarts | Approval via a UI/Slack interactive buttons with identity from the IdP; richer risk scoring |
-| 7 | Operational excellence | Core done | SLOs and `/api/obs/slo`, tamper-evident hash-chained audit log, retention pruning, health endpoint, traces/metrics/dashboard | Alerting on SLO breach, durable trace storage, runbooks for operating FURY itself, load testing |
-| 8 | Enterprise hardening | Partly done | Token auth with three roles, deny-by-default route map, hashed tokens, throttling, audited denials, refuses to start unauthenticated with real integrations | **SSO/OIDC**, a secrets manager (secrets are still in `.env`), TLS (serve behind a reverse proxy), penetration test, dependency/supply-chain scanning, disaster recovery test |
+| 7 | Operational excellence | Done for current scope | SLOs and `/api/obs/slo`, tamper-evident hash-chained audit log, retention pruning, health endpoint, traces/metrics/dashboard | Durable trace storage; a load test against the live integrations; a tested restore from backup |
+| 8 | Enterprise hardening | Partly done | Token auth with three roles, deny-by-default route map, hashed tokens, throttling, audited denials, refuses to start unauthenticated with real integrations | **SSO/OIDC**, an independent penetration test, a disaster-recovery test, and running the TLS proxy/container files (`deploy/`) and the Secrets Manager loader against real infrastructure (all UNVERIFIED) |
 
 ## Test evidence
 Run `python -m unittest discover -s tests`. Suites: flow, adapters, observability, chat policy, store, runbook provenance,
@@ -36,3 +38,9 @@ endpoints and audit-chain verification.
 - The audit log detects tampering; it does not prevent it. Ship it to write-once storage for real assurance.
 - Telemetry is in memory (newest 2000 spans) and clears on restart.
 - Pending Slack approvals do not survive a restart; they are expired and the incident must be re-raised.
+
+## Added 2026-11-19
+- ServiceNow: a recurrence after resolution now opens a **new** ticket (Resolved/Closed/Canceled no longer count as open); FURY claims each ticket (In Progress, assigned to the integration user) and hands over to the L2 group on escalation. Verified live.
+- Operations: Slack alerts on SLO breach/recovery (`fury/slo_alert.py`), `docs/OPERATIONS.md` (runbook for FURY itself), `tests/loadtest.py` (about 440 req/s, p95 about 250 ms, 0 server errors against fake backends).
+- Hardening: browser security headers, `fury/secrets.py` (AWS Secrets Manager, allow-listed keys, stub-tested only), `deploy/Caddyfile` and `deploy/Dockerfile` (not run), `pip-audit` clean on `requirements.txt`, waitress used automatically as the production server when installed.
+- UI: rebuilt as a minimal single page (chat, incidents, insights), in-page sign-in instead of a browser prompt, light and dark themes, no external fonts or network calls.
