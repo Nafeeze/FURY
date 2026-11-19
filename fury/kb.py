@@ -35,19 +35,24 @@ def _paragraphs(text):
     return out
 
 
+def _val(v):
+    """Reference/choice fields arrive as {"display_value": ...} when display values are requested."""
+    return str(v.get("display_value") if isinstance(v, dict) else v or "").strip()
+
+
 def to_docs(articles):
     """ServiceNow rows -> pseudo-runbooks accepted by retrieval.chunks()/search(). Unpublished rows are dropped."""
     docs = []
     for a in articles[:MAX_ARTICLES]:
         if str(a.get("workflow_state", "")).lower() != "published": continue
-        body = to_text(a.get("text", "")); title = (a.get("short_description") or "").strip()
+        body = to_text(a.get("text") or a.get("wiki") or ""); title = (a.get("short_description") or "").strip()
         if not title or not body: continue
         parts = _paragraphs(body)
         base = a.get("kb_knowledge_base")
         docs.append(RB.Runbook(
-            id=a.get("number") or title, title=title, kind="kb", symptoms=parts[0], owner_team=(base.get("display_value") if isinstance(base, dict) else base) or "knowledge base",
+            id=a.get("number") or title, title=title, kind="kb", symptoms=parts[0], owner_team=_val(base) or "knowledge base",
             escalate_to="", steps=[RB.Step(n=i + 1, type="info", text=p) for i, p in enumerate(parts[1:], 1)],
-            version=str(a.get("version") or "1"), status="active", updated_at=(a.get("sys_updated_on") or "")[:10], source=f"servicenow-kb:{a.get('number')}",
+            version=_val(a.get("version")) or "1", status="active", updated_at=(a.get("sys_updated_on") or "")[:10], source=f"servicenow-kb:{a.get('number')}",
             content_hash=hashlib.sha256((title + body).encode("utf-8")).hexdigest()[:12], access=("all",)))
     return docs
 

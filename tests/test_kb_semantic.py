@@ -21,6 +21,13 @@ class IngestTests(unittest.TestCase):
         self.assertNotIn("evil", body); self.assertNotIn("<", body); self.assertIn("stopped & unresponsive", body)
         self.assertEqual(docs[0].version, "2"); self.assertEqual(docs[0].owner_team, "IT"); self.assertEqual(docs[0].kind, "kb")
 
+    def test_display_value_objects_and_wiki_bodies_are_handled(self):
+        rows = [{"number": "KB1", "short_description": "Wiki style article", "workflow_state": "Published", "text": None, "wiki": "<p>Body from the wiki field.</p>",
+                 "version": {"display_value": "1.0", "link": "x"}, "kb_knowledge_base": {"display_value": "Known Error"}},
+                {"number": "KB2", "short_description": "Empty body", "workflow_state": "Published", "text": None}]
+        docs = KB.to_docs(rows)
+        self.assertEqual([d.id for d in docs], ["KB1"]); self.assertEqual(docs[0].version, "1.0"); self.assertEqual(docs[0].owner_team, "Known Error")
+
     def test_refresh_keeps_previous_index_when_servicenow_fails(self):
         snow = FakeSnow(); snow.kb_articles = ARTICLES
         k = KB.KnowledgeBase(snow); self.assertEqual(k.refresh(), 2)

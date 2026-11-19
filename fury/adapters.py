@@ -83,7 +83,7 @@ class SnowClient:
     def list_kb(self, limit=200):
         """Published knowledge articles (read-only). Needs read access to kb_knowledge, which the itil role has."""
         r = self._req("GET", "/api/now/table/kb_knowledge", params={"sysparm_query": "workflow_state=published^ORDERBYnumber", "sysparm_limit": limit, "sysparm_display_value": "true",
-                      "sysparm_fields": "number,short_description,text,workflow_state,sys_updated_on,kb_knowledge_base,version"})
+                      "sysparm_fields": "number,short_description,text,wiki,workflow_state,sys_updated_on,kb_knowledge_base,version"})
         return r or []
     def get_notes(self, number):
         r = self._req("GET", "/api/now/table/sys_journal_field", params={"sysparm_query": f"element_id={self._sys_id(number)}^element=work_notes^ORDERBYsys_created_on",
