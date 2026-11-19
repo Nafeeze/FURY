@@ -1,0 +1,313 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  FURY AWS foundation for one Windows server: SSM command documents (5 read-only checks, 3 approved actions), two
+  least-privilege IAM users with access keys stored in Secrets Manager (never in outputs), CloudWatch alarms on the Fury
+  metrics, an SNS topic for notifications, permission for the server to publish the Fury metrics, and (optionally) the
+  server configuration itself (IIS, F: data volume, metrics publisher). Replaces aws_setup/friend_setup.py: use one or the other.
+
+Parameters:
+  InstanceId:
+    Type: AWS::EC2::Instance::Id
+    Description: The Windows server FURY manages (pick it from the list).
+  InstanceRoleName:
+    Type: String
+    Description: Name of the IAM role attached to that instance (EC2 > the instance > Security tab > IAM role). Example FuryInstanceRole.
+    MinLength: 1
+  AlertEmail:
+    Type: String
+    Default: ""
+    Description: Optional. Email address to notify when an alarm fires or clears (you must confirm the subscription email).
+  ConfigureServer:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Run the one-time server configuration (IIS, F:, metrics publisher) through Systems Manager. Needs the instance Online in Fleet Manager.
+  SecretName:
+    Type: String
+    Default: fury/prod
+    Description: Name of the Secrets Manager secret that receives the two FURY access keys.
+
+Conditions:
+  HasEmail: !Not [!Equals [!Ref AlertEmail, ""]]
+  DoConfigureServer: !Equals [!Ref ConfigureServer, "true"]
+
+Resources:
+  # ---------------------------------------------------------------- notifications
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: fury-alerts
+      DisplayName: FURY alerts
+
+  AlertsTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref AlertsTopic]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudWatchAlarmsFromThisAccount
+            Effect: Allow
+            Principal: {Service: cloudwatch.amazonaws.com}
+            Action: sns:Publish
+            Resource: !Ref AlertsTopic
+            Condition:
+              StringEquals: {"aws:SourceAccount": !Ref "AWS::AccountId"}
+
+  AlertsEmail:
+    Type: AWS::SNS::Subscription
+    Condition: HasEmail
+    Properties:
+      TopicArn: !Ref AlertsTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  # ---------------------------------------------------------------- Systems Manager command documents (identical to setup_aws.py)
+
+  DocFuryCheckDisk:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: Fury-Check-Disk
+      DocumentType: Command
+      DocumentFormat: JSON
+      Content: {"schemaVersion":"2.2","description":"Read-only: disk usage","parameters":{"Drive":{"type":"String","description":"param","allowedPattern":"^[A-Z]:$","default":"F:"}},"mainSteps":[{"action":"aws:runPowerShellScript","name":"run","inputs":{"runCommand":["$d = Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='{{ Drive }}'\"","if (-not $d) { Write-Output '{\"error\":\"drive not found\",\"healthy\":false}'; exit 0 }","$pct = [math]::Round(100 * ($d.Size - $d.FreeSpace) / $d.Size, 1)","$used = [math]::Round(($d.Size - $d.FreeSpace) / 1MB)","$tmp = 0","if (Test-Path '{{ Drive }}\\fury-tmp') { $tmp = [math]::Round(((Get-ChildItem '{{ Drive }}\\fury-tmp' -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum) / 1MB) }","@{drive='{{ Drive }}'; used_percent=$pct; used_mb=$used; tmp_mb=$tmp; healthy=($pct -lt 85)} | ConvertTo-Json -Compress"]}}]}
+
+  DocFuryCheckCpu:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: Fury-Check-Cpu
+      DocumentType: Command
+      DocumentFormat: JSON
+      Content: {"schemaVersion":"2.2","description":"Read-only: busiest process","parameters":{},"mainSteps":[{"action":"aws:runPowerShellScript","name":"run","inputs":{"runCommand":["$s = (Get-Counter '\\Process(*)\\% Processor Time' -SampleInterval 2 -MaxSamples 1).CounterSamples | Where-Object { $_.InstanceName -notin @('_total','idle') } | Sort-Object CookedValue -Descending | Select-Object -First 1","$cpu = [math]::Min(100, [math]::Round($s.CookedValue, 1))","@{top_process=$s.InstanceName; top_cpu_percent=$cpu; healthy=($cpu -lt 80)} | ConvertTo-Json -Compress"]}}]}
+
+  DocFuryCheckService:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: Fury-Check-Service
+      DocumentType: Command
+      DocumentFormat: JSON
+      Content: {"schemaVersion":"2.2","description":"Read-only: service state","parameters":{"Name":{"type":"String","description":"param","allowedValues":["W3SVC"],"default":"W3SVC"}},"mainSteps":[{"action":"aws:runPowerShellScript","name":"run","inputs":{"runCommand":["$s = Get-Service -Name '{{ Name }}' -ErrorAction SilentlyContinue","if (-not $s) { Write-Output '{\"state\":\"unknown\",\"healthy\":false}'; exit 0 }","@{service='{{ Name }}'; state=$s.Status.ToString().ToLower(); healthy=($s.Status -eq 'Running')} | ConvertTo-Json -Compress"]}}]}
+
+  DocFuryCheckMemory:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: Fury-Check-Memory
+      DocumentType: Command
+      DocumentFormat: JSON
+      Content: {"schemaVersion":"2.2","description":"Read-only: memory use","parameters":{},"mainSteps":[{"action":"aws:runPowerShellScript","name":"run","inputs":{"runCommand":["$o = Get-CimInstance Win32_OperatingSystem","$u = [math]::Round(100 * (1 - $o.FreePhysicalMemory / $o.TotalVisibleMemorySize), 1)","@{used_percent=$u; healthy=($u -lt 90)} | ConvertTo-Json -Compress"]}}]}
+
+  DocFuryCheckEvents:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: Fury-Check-Events
+      DocumentType: Command
+      DocumentFormat: JSON
+      Content: {"schemaVersion":"2.2","description":"Read-only: recent event log lines","parameters":{"LogName":{"type":"String","description":"param","allowedValues":["System","Application"],"default":"System"},"Last":{"type":"String","description":"param","allowedPattern":"^[0-9]{1,2}$","default":"20"}},"mainSteps":[{"action":"aws:runPowerShellScript","name":"run","inputs":{"runCommand":["$ev = @(Get-WinEvent -LogName '{{ LogName }}' -MaxEvents {{ Last }} -ErrorAction SilentlyContinue | ForEach-Object { \"$($_.ProviderName): $(($_.Message -split \"`n\")[0]) (Event $($_.Id))\" })","ConvertTo-Json -Compress -InputObject @{log='{{ LogName }}'; events=$ev; healthy=$true}"]}}]}
+
+  DocFuryActRestartService:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: Fury-Act-RestartService
+      DocumentType: Command
+      DocumentFormat: JSON
+      Content: {"schemaVersion":"2.2","description":"ACTION: restart an allowlisted service","parameters":{"Name":{"type":"String","description":"param","allowedValues":["W3SVC"]}},"mainSteps":[{"action":"aws:runPowerShellScript","name":"run","inputs":{"runCommand":["Restart-Service -Name '{{ Name }}' -Force","Start-Sleep -Seconds 3","$s = Get-Service '{{ Name }}'","@{restarted='{{ Name }}'; state=$s.Status.ToString().ToLower()} | ConvertTo-Json -Compress"]}}]}
+
+  DocFuryActClearTemp:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: Fury-Act-ClearTemp
+      DocumentType: Command
+      DocumentFormat: JSON
+      Content: {"schemaVersion":"2.2","description":"ACTION: clear F:\\fury-tmp only","parameters":{"Path":{"type":"String","description":"param","allowedValues":["F:\\fury-tmp"]}},"mainSteps":[{"action":"aws:runPowerShellScript","name":"run","inputs":{"runCommand":["$p = '{{ Path }}'","if ($p -ne 'F:\\fury-tmp') { throw 'path not allowed' }","$f = @(Get-ChildItem $p -Recurse -File -ErrorAction SilentlyContinue)","$mb = [math]::Round((($f | Measure-Object Length -Sum).Sum) / 1MB)","$f | Remove-Item -Force -ErrorAction SilentlyContinue","@{deleted_files=$f.Count; freed_mb=$mb; scope=$p} | ConvertTo-Json -Compress"]}}]}
+
+  DocFuryActKillProcess:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: Fury-Act-KillProcess
+      DocumentType: Command
+      DocumentFormat: JSON
+      Content: {"schemaVersion":"2.2","description":"ACTION: stop the allowlisted runaway process","parameters":{"Name":{"type":"String","description":"param","allowedValues":["fury-rogue"]}},"mainSteps":[{"action":"aws:runPowerShellScript","name":"run","inputs":{"runCommand":["$n = '{{ Name }}'","$was = [bool](Get-Process -Name $n -ErrorAction SilentlyContinue)","Stop-Process -Name $n -Force -ErrorAction SilentlyContinue","@{stopped=$n; was_running=$was} | ConvertTo-Json -Compress"]}}]}
+
+  # ---------------------------------------------------------------- two separate identities: read-only vs. approved actions
+  DiagnosticUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: fury-diagnostic
+      Policies:
+        - PolicyName: fury-diagnostic-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:SendCommand
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${InstanceId}"
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/Fury-Check-*"
+              - Effect: Allow
+                Action: [ssm:GetCommandInvocation, ssm:ListCommandInvocations, ssm:DescribeInstanceInformation]
+                Resource: "*"
+              - Effect: Allow
+                Action: [cloudwatch:DescribeAlarms, cloudwatch:GetMetricData, cloudwatch:GetMetricStatistics]
+                Resource: "*"
+
+  RemediationUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: fury-remediation
+      Policies:
+        - PolicyName: fury-remediation-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:SendCommand
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${InstanceId}"
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/Fury-Act-*"
+              - Effect: Allow
+                Action: [ssm:GetCommandInvocation, ssm:ListCommandInvocations, ssm:DescribeInstanceInformation]
+                Resource: "*"
+
+  DiagnosticKey:
+    Type: AWS::IAM::AccessKey
+    Properties: {UserName: !Ref DiagnosticUser}
+
+  RemediationKey:
+    Type: AWS::IAM::AccessKey
+    Properties: {UserName: !Ref RemediationUser}
+
+  # Keys go straight into Secrets Manager (the secret format FURY's own loader, fury/secrets.py, reads). They never appear in outputs or logs.
+  CredentialsSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      Name: !Ref SecretName
+      Description: FURY AWS access keys (diagnostic = read only, remediation = approved actions only)
+      SecretString: !Sub '{"AWS_DIAG_KEY_ID":"${DiagnosticKey}","AWS_DIAG_SECRET":"${DiagnosticKey.SecretAccessKey}","AWS_REMED_KEY_ID":"${RemediationKey}","AWS_REMED_SECRET":"${RemediationKey.SecretAccessKey}"}'
+
+  # ---------------------------------------------------------------- let the server publish the metrics the alarms watch
+  InstancePublishMetrics:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: FuryPublishMetrics
+      Roles: [!Ref InstanceRoleName]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: cloudwatch:PutMetricData
+            Resource: "*"
+            Condition:
+              StringEquals: {"cloudwatch:namespace": Fury}
+
+  # ---------------------------------------------------------------- alarms FURY polls (names must stay Fury-*)
+
+  AlarmFuryDiskFHigh:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: Fury-Disk-F-High
+      AlarmDescription: "Disk F: usage above 90%"
+      Namespace: Fury
+      MetricName: DiskUsedPercent
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref InstanceId
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 90
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
+
+  AlarmFuryW3SVCStopped:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: Fury-W3SVC-Stopped
+      AlarmDescription: "W3SVC service stopped"
+      Namespace: Fury
+      MetricName: W3SVCRunning
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref InstanceId
+      Statistic: Minimum
+      Period: 60
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
+
+  AlarmFuryCPUHigh:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: Fury-CPU-High
+      AlarmDescription: "CPU utilization above 90%"
+      Namespace: Fury
+      MetricName: CpuPercent
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref InstanceId
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 90
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
+
+  AlarmFuryMemHigh:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: Fury-Mem-High
+      AlarmDescription: "Memory usage above 90%"
+      Namespace: Fury
+      MetricName: MemUsedPercent
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref InstanceId
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 90
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
+
+  # ---------------------------------------------------------------- one-time server configuration through Systems Manager
+  ServerSetup:
+    Type: AWS::SSM::Association
+    Condition: DoConfigureServer
+    Properties:
+      AssociationName: fury-server-setup
+      Name: AWS-RunPowerShellScript
+      Targets:
+        - Key: InstanceIds
+          Values: [!Ref InstanceId]
+      Parameters:
+        commands: ["# Runs ON the EC2 (via SSM, as SYSTEM). Idempotent. Sets up: IIS, F: data drive, fury-rogue/fury-leak binaries, metrics publisher.","$ErrorActionPreference = 'Stop'","New-Item -ItemType Directory -Force C:\\fury | Out-Null","","# 1. IIS (W3SVC is the service FURY protects)","if (-not (Get-WindowsFeature Web-Server).Installed) { Install-WindowsFeature Web-Server | Out-Null }","Set-Service W3SVC -StartupType Automatic; if ((Get-Service W3SVC).Status -ne 'Running') { Start-Service W3SVC }","","# 2. F: data drive as a 2 GB virtual disk (skip if you already attached an EBS volume as F:)","if (-not (Test-Path 'F:\\')) {","  \"create vdisk file=C:\\fury\\fury.vhdx maximum=2048 type=expandable`r`nselect vdisk file=C:\\fury\\fury.vhdx`r`nattach vdisk`r`ncreate partition primary`r`nformat fs=ntfs quick label=FURYDATA`r`nassign letter=F\" | Set-Content C:\\fury\\make.txt -Encoding ASCII","  diskpart /s C:\\fury\\make.txt | Out-Null","}","\"select vdisk file=C:\\fury\\fury.vhdx`r`nattach vdisk\" | Set-Content C:\\fury\\attach.txt -Encoding ASCII","if (-not (Get-ScheduledTask -TaskName FuryAttachDisk -ErrorAction SilentlyContinue)) {","  Register-ScheduledTask -TaskName FuryAttachDisk -User SYSTEM -RunLevel Highest -Trigger (New-ScheduledTaskTrigger -AtStartup) `","    -Action (New-ScheduledTaskAction -Execute 'diskpart.exe' -Argument '/s C:\\fury\\attach.txt') | Out-Null","}","New-Item -ItemType Directory -Force F:\\fury-tmp | Out-Null","","# 3. Renamed copies of powershell used by the fault injector (so the culprit has a recognisable name)","$ps = \"$env:WINDIR\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\"","Copy-Item $ps C:\\fury\\fury-rogue.exe -Force","Copy-Item $ps C:\\fury\\fury-leak.exe -Force","","# 4. Metrics publisher: custom CloudWatch metrics every minute (namespace Fury)","@'",{"Fn::Sub":"$inst = '${InstanceId}'; $region = '${AWS::Region}'"},"Import-Module AWSPowerShell -ErrorAction SilentlyContinue","function Put($name, $value) {","  $d = New-Object Amazon.CloudWatch.Model.Dimension; $d.Name = 'InstanceId'; $d.Value = $inst","  $m = New-Object Amazon.CloudWatch.Model.MetricDatum; $m.MetricName = $name; $m.Value = [double]$value; $m.Dimensions.Add($d); $m.Timestamp = (Get-Date).ToUniversalTime()","  Write-CWMetricData -Namespace 'Fury' -MetricData $m -Region $region","}","$d = Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='F:'\"","if ($d) { Put 'DiskUsedPercent' ([math]::Round(100 * ($d.Size - $d.FreeSpace) / $d.Size, 1)) }","$s = Get-Service W3SVC -ErrorAction SilentlyContinue","Put 'W3SVCRunning' ([int]($s -and $s.Status -eq 'Running'))","$p = (Get-Counter '\\Process(*)\\% Processor Time' -SampleInterval 2 -MaxSamples 1).CounterSamples | Where-Object { $_.InstanceName -notin @('_total','idle') } | Sort-Object CookedValue -Descending | Select-Object -First 1","Put 'CpuPercent' ([math]::Min(100, [math]::Round($p.CookedValue, 1)))","$o = Get-CimInstance Win32_OperatingSystem","Put 'MemUsedPercent' ([math]::Round(100 * (1 - $o.FreePhysicalMemory / $o.TotalVisibleMemorySize), 1))","'@ | Set-Content C:\\fury\\publish_metrics.ps1 -Encoding UTF8","","$a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -ExecutionPolicy Bypass -File C:\\fury\\publish_metrics.ps1'","$t = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration (New-TimeSpan -Days 3650)","Register-ScheduledTask -TaskName FuryMetrics -Action $a -Trigger $t -User SYSTEM -RunLevel Highest -Force | Out-Null","Start-ScheduledTask -TaskName FuryMetrics","","$hasCw = [bool](Get-Command Write-CWMetricData -ErrorAction SilentlyContinue)","Write-Output (\"SETUP DONE | IIS=\" + (Get-Service W3SVC).Status + \" | F:=\" + (Test-Path 'F:\\fury-tmp') + \" | AWSPowerShell(Write-CWMetricData)=\" + $hasCw)"]
+
+Outputs:
+  AlertsTopicArn:
+    Value: !Ref AlertsTopic
+  SecretName:
+    Value: !Ref SecretName
+  HowToGetTheKeys:
+    Description: Run this on a trusted machine, then paste the four AWS_DIAG_* / AWS_REMED_* lines into FURY's .env (or set FURY_SECRETS_PROVIDER=aws).
+    Value: !Sub "aws secretsmanager get-secret-value --secret-id ${SecretName} --region ${AWS::Region} --query SecretString --output text"
+  FuryEnvLines:
+    Description: Non-secret lines for FURY's .env
+    Value: !Sub "AWS_REGION=${AWS::Region}   AWS_INSTANCE_ID=${InstanceId}   FURY_TARGET=real"
+  ServerSetupCheck:
+    Condition: DoConfigureServer
+    Description: Confirm the server configuration finished (look for Status Success).
+    Value: !Sub "aws ssm describe-association --association-id ${ServerSetup.AssociationId} --region ${AWS::Region} --query AssociationDescription.Overview.Status"
