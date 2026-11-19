@@ -98,11 +98,13 @@ class ITSM(Agent):
         if existing: return {"number": existing, "duplicate": True}
         imp, urg = SEVERITY.get(i.get("severity", "major"), ("2", "2"))
         n = self.s.create({"short_description": i["short_description"], "description": i["description"], "impact": imp, "urgency": urg})
+        try: self.s.claim(n)   # best practice: the ticket is In Progress and owned by FURY, not left New and unowned
+        except Exception as e: self.s.add_note(n, f"FURY could not mark the ticket In Progress / assign it to itself ({type(e).__name__}).")
         return {"number": n, "duplicate": False}
     def note(self, task): self.s.add_note(task.input["ticket"], task.input["text"]); return {}
     def assign(self, task):
         t, g = task.input["ticket"], task.input["group"]; gid = self.s.ensure_group(g)
-        fields = {"state": "2"}
+        fields = {"state": "2", "assigned_to": ""}   # hand over: clear FURY as owner so the L2 team picks it up
         if gid: fields["assignment_group"] = gid
         self.s.update(t, fields)
         if not gid: self.s.add_note(t, f"Group '{g}' not found in ServiceNow and could not be created; ticket left unassigned. Intended team: {g}.")

@@ -14,10 +14,12 @@ def pick_close_code(choices):
             if key in low and "not " not in low and "work around" not in low: return v
     return vals[0] if vals else "Solved (Permanently)"
 
+OPEN_EXCLUDED_STATES = "6,7,8"   # Resolved, Closed, Canceled: never count as "already open" (FakeSnow uses the same rule)
+
 class SnowClient:
     """Real ServiceNow Table API client (stdlib only). Credentials come from the environment, never logged."""
     def __init__(self, base_url, user, password, timeout=20):
-        self.base, self.timeout = base_url.rstrip("/"), timeout
+        self.base, self.timeout, self.user = base_url.rstrip("/"), timeout, user
         self._auth = "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
         self._sid, self._cc, self.close_choices = {}, None, []
     def close_code(self):
@@ -40,7 +42,9 @@ class SnowClient:
         except urllib.error.URLError as e:
             raise SnowError(f"ServiceNow unreachable: {e.reason}")
     def find_open(self, key):
-        r = self._req("GET", "/api/now/table/incident", params={"sysparm_query": f"active=true^short_descriptionLIKE{key}",
+        # A Resolved (6) incident is still active=true in ServiceNow until it auto-closes, but the problem is fixed: a
+        # recurrence must get a NEW ticket, not a note on the resolved one. So exclude Resolved, Closed and Canceled.
+        r = self._req("GET", "/api/now/table/incident", params={"sysparm_query": f"active=true^stateNOT IN{OPEN_EXCLUDED_STATES}^short_descriptionLIKE{key}",
                       "sysparm_limit": 1, "sysparm_fields": "number,sys_id"})
         if r: self._sid[r[0]["number"]] = r[0]["sys_id"]; return r[0]["number"]
         return None
@@ -53,6 +57,19 @@ class SnowClient:
             if not r: raise SnowError(f"incident {number} not found")
             self._sid[number] = r[0]["sys_id"]
         return self._sid[number]
+    def claim(self, number):
+        """FURY takes ownership of a ticket it opened: In Progress, assigned to the integration user. Returns True if assigned."""
+        fields = {"state": "2"}
+        uid = self._user_sys_id()
+        if uid: fields["assigned_to"] = uid
+        self.update(number, fields); return bool(uid)
+    def _user_sys_id(self):
+        if not hasattr(self, "_uid"):
+            try:
+                r = self._req("GET", "/api/now/table/sys_user", params={"sysparm_query": f"user_name={self.user}", "sysparm_limit": 1, "sysparm_fields": "sys_id"})
+                self._uid = r[0]["sys_id"] if r else None
+            except SnowError: self._uid = None
+        return self._uid
     def update(self, number, fields): self._req("PATCH", f"/api/now/table/incident/{self._sys_id(number)}", body=fields)
     def add_note(self, number, text): self.update(number, {"work_notes": text})
     def list_recent(self, key, limit=25):
@@ -82,12 +99,13 @@ class FakeSnow:
     def find_open(self, key):
         self._chk()
         for n, i in self.incidents.items():
-            if i["state"] not in ("6", "7") and key in i["short_description"]: return n
+            if i["state"] not in tuple(OPEN_EXCLUDED_STATES.split(",")) and key in i["short_description"]: return n
         return None
     def create(self, fields):
         self._chk(); self._n += 1; n = f"INC00{self._n}"
         self.incidents[n] = {**fields, "number": n, "state": "1", "work_notes": [], "assignment_group": ""}; return n
     def update(self, number, fields): self._chk(); self.incidents[number].update(fields)
+    def claim(self, number): self.update(number, {"state": "2", "assigned_to": "fury_integration"}); return True
     def add_note(self, number, text): self._chk(); self.incidents[number]["work_notes"].append(text)
     def list_recent(self, key, limit=25):
         return [{"number": n, "short_description": i["short_description"], "state": i["state"], "priority": "2", "assignment_group": i["assignment_group"], "sys_created_on": ""}

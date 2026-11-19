@@ -302,7 +302,8 @@ def create_app(ctx, demo=False, auth=None):
         def inject(fault):
             if fault not in ALERTS: return jsonify(error="unknown fault"), 404
             ctx.demo_target.inject(fault)
-            return jsonify(run=ctx.submit("handle_alert", ALERTS[fault], "cloudwatch", ALERTS[fault]["description"]))
+            alert = dict(ALERTS[fault], instance=ctx.instance)   # the configured instance, so tickets match the Incidents list filter
+            return jsonify(run=ctx.submit("handle_alert", alert, "cloudwatch", alert["description"]))
         @app.post("/api/demo/reset")
         def reset(): ctx.demo_target.reset(); return jsonify(ok=True)
     return app

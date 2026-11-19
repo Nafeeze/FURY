@@ -136,4 +136,43 @@ class A2AAndSnow(unittest.TestCase):
             self.assertEqual(json.loads(seen[2][3])["state"], "6")
         finally: srv.shutdown()
 
+class RecurrenceTests(unittest.TestCase):
+    def test_real_client_never_treats_resolved_closed_canceled_as_open(self):
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        import urllib.parse
+        seen = []
+        class H(BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append(urllib.parse.unquote_plus(self.path)); b = b'{"result": []}'
+                self.send_response(200); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
+            def log_message(self, *a): pass
+        srv = HTTPServer(("127.0.0.1", 0), H); threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            self.assertIsNone(SnowClient(f"http://127.0.0.1:{srv.server_port}", "u", "p").find_open("Fury-Disk-F-High i-1"))
+            self.assertIn("stateNOT IN6,7,8", seen[0]); self.assertIn("active=true", seen[0])
+        finally: srv.shutdown()
+    def test_recurrence_after_resolution_opens_a_new_ticket(self):
+        from fury import system
+        snow, tgt = FakeSnow(), FakeTarget()
+        bus, triage, env = system.build(target=tgt, snow=snow, chat=FakeChat([("U1", "approve"), ("U1", "approve")]), approvers=["U1"])
+        tgt.inject("disk_full"); first = system.run_alert(bus, system.ALERTS["disk_full"]).output
+        self.assertEqual(first["outcome"], "resolved")
+        tgt.inject("disk_full"); second = system.run_alert(bus, system.ALERTS["disk_full"]).output
+        self.assertNotEqual(second["outcome"], "duplicate"); self.assertNotEqual(second["ticket"], first["ticket"])
+
+class OwnershipTests(unittest.TestCase):
+    def test_fury_owns_the_ticket_while_working_and_hands_over_on_escalation(self):
+        from fury import system
+        snow, tgt = FakeSnow(), FakeTarget()
+        bus, triage, env = system.build(target=tgt, snow=snow, chat=FakeChat([("U1", "approve")]), approvers=["U1"])
+        tgt.inject("disk_full"); out = system.run_alert(bus, system.ALERTS["disk_full"]).output
+        inc = snow.incidents[out["ticket"]]
+        self.assertEqual(inc["assigned_to"], "fury_integration"); self.assertEqual(inc["state"], "6")
+        tgt2, snow2 = FakeTarget(), FakeSnow()
+        bus2, _, _ = system.build(target=tgt2, snow=snow2, chat=FakeChat([("U1", "reject")]), approvers=["U1"])
+        tgt2.inject("cpu_runaway"); out2 = system.run_alert(bus2, system.ALERTS["cpu_runaway"]).output
+        self.assertEqual(out2["outcome"], "escalated")
+        inc2 = snow2.incidents[out2["ticket"]]
+        self.assertEqual(inc2["assigned_to"], ""); self.assertEqual(inc2["assignment_group"], "SRE-Platform L2")
+
 if __name__ == "__main__": unittest.main(verbosity=2)
