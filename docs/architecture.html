@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>FURY architecture</title>
+<style>
+html,body{margin:0;background:#fff;font-family:"Segoe UI",system-ui,sans-serif}
+svg{display:block}
+.t{font-size:13px;fill:#16171a}.s{font-size:11px;fill:#5b5e66}.h{font-size:15px;font-weight:700;fill:#16171a}.lay{font-size:12px;font-weight:700;letter-spacing:.12em;fill:#6b6e77}
+.box{fill:#fff;stroke:#c9ccd4;stroke-width:1.4}.agent{fill:#eef0ff;stroke:#4338ca;stroke-width:1.4}.act{fill:#fff1f2;stroke:#d1334a;stroke-width:1.8}
+.ext{fill:#f3f9f6;stroke:#0f9d6e;stroke-width:1.4}.sim{fill:#fff8e6;stroke:#c27803;stroke-width:1.6;stroke-dasharray:6 4}
+.st{fill:#f6f6f8;stroke:#c9ccd4;stroke-width:1.2}.band{fill:#fafafb;stroke:#e6e6ea}
+.ar{stroke:#4338ca;stroke-width:1.6;fill:none;marker-end:url(#a)}.ard{stroke:#8b8e97;stroke-width:1.3;fill:none;stroke-dasharray:5 4;marker-end:url(#g)}.arr{stroke:#d1334a;stroke-width:1.8;fill:none;marker-end:url(#r)}
+</style></head><body>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="940" viewBox="0 0 1600 940">
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#4338ca"/></marker>
+<marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#8b8e97"/></marker>
+<marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#d1334a"/></marker>
+</defs>
+<rect width="1600" height="940" fill="#fff"/>
+<text x="30" y="40" class="h" style="font-size:24px">FURY: AI-assisted L1 SRE triage and remediation</text>
+<text x="30" y="62" class="s" style="font-size:13px">The AI talks, deterministic code acts. Every change is approved by a human and audited.</text>
+
+<!-- layer 0: entry -->
+<text x="30" y="96" class="lay">1  ENTRY POINTS</text>
+<rect x="30" y="106" width="300" height="70" rx="10" class="box"/><text x="46" y="132" class="h">Engineer</text><text x="46" y="152" class="s">Minimal web UI: Chat / Incidents / Insights</text>
+<rect x="350" y="106" width="300" height="70" rx="10" class="box"/><text x="366" y="132" class="h">CloudWatch alarms</text><text x="366" y="152" class="s">Poller every 30 s: disk, IIS, CPU, memory</text>
+<rect x="670" y="106" width="300" height="70" rx="10" class="box"/><text x="686" y="132" class="h">SRE Admin (human approver)</text><text x="686" y="152" class="s">Approves any server change in Slack</text>
+
+<!-- layer 1: API -->
+<text x="30" y="212" class="lay">2  FURY API  (Flask + waitress, localhost behind a TLS proxy)</text>
+<rect x="30" y="222" width="940" height="64" rx="10" class="box"/>
+<text x="46" y="246" class="t">Token auth with 3 roles (viewer / operator / admin), hashed tokens</text><text x="46" y="266" class="t">Brute-force throttle, CSP + security headers, input limits</text>
+<text x="520" y="246" class="t">Tamper-evident audit log (hash chain)</text><text x="520" y="266" class="t">Secrets: .env or AWS Secrets Manager</text>
+
+<!-- layer 2: chat intelligence -->
+<text x="30" y="322" class="lay">3  CHAT INTELLIGENCE  (model phrases, code decides)</text>
+<rect x="30" y="332" width="300" height="100" rx="10" class="agent"/><text x="46" y="358" class="h">Intent classifier</text><text x="46" y="378" class="s">LLM first, keyword rules as fallback.</text><text x="46" y="394" class="s">Only real, confirmed problems reach triage.</text><text x="46" y="410" class="s">Model chain: auto-skips retired models</text>
+<rect x="350" y="332" width="300" height="100" rx="10" class="agent"/><text x="366" y="358" class="h">Grounded reply composer</text><text x="366" y="378" class="s">Phrases answers from FACTS only (runbook,</text><text x="366" y="394" class="s">KB text, ticket + outcome). Output checked:</text><text x="366" y="410" class="s">no links, no invented tickets, no secrets</text>
+<rect x="670" y="332" width="300" height="100" rx="10" class="agent"/><text x="686" y="358" class="h">Knowledge retrieval</text><text x="686" y="378" class="s">Versioned runbooks + ServiceNow KB articles</text><text x="686" y="394" class="s">BM25 + fuzzy (+ embeddings, opt-in), cited,</text><text x="686" y="410" class="s">abstains when there is no evidence</text>
+
+<!-- layer 3: agents -->
+<text x="30" y="468" class="lay">4  AGENT BUS  (agent-to-agent, every hop traced with timing)</text>
+<rect x="20" y="472" width="960" height="104" rx="14" class="band"/>
+<rect x="30" y="478" width="150" height="86" rx="10" class="agent"/><text x="42" y="504" class="h">Triage</text><text x="42" y="524" class="s">Owns the incident,</text><text x="42" y="540" class="s">orchestrates</text>
+<rect x="196" y="478" width="150" height="86" rx="10" class="agent"/><text x="208" y="504" class="h">Knowledge</text><text x="208" y="524" class="s">Picks the approved</text><text x="208" y="540" class="s">runbook</text>
+<rect x="362" y="478" width="150" height="86" rx="10" class="agent"/><text x="374" y="504" class="h">Diagnostic</text><text x="374" y="524" class="s">Read-only checks,</text><text x="374" y="540" class="s">confirms evidence</text>
+<rect x="528" y="478" width="170" height="86" rx="10" class="act"/><text x="540" y="504" class="h">Remediation</text><text x="540" y="524" class="s">ONLY agent that acts.</text><text x="540" y="540" class="s">Allow-list, risk tiers, 1 try</text>
+<rect x="714" y="478" width="120" height="86" rx="10" class="agent"/><text x="726" y="504" class="h">ITSM</text><text x="726" y="524" class="s">Tickets, notes,</text><text x="726" y="540" class="s">resolve, assign</text>
+<rect x="850" y="478" width="120" height="86" rx="10" class="agent"/><text x="862" y="504" class="h">Comms</text><text x="862" y="524" class="s">Approval +</text><text x="862" y="540" class="s">escalation</text>
+
+<!-- layer 4: integrations -->
+<text x="30" y="742" class="lay">5  INTEGRATIONS  (least privilege)</text>
+<rect x="30" y="610" width="226" height="110" rx="10" class="ext"/><text x="44" y="636" class="h">ServiceNow</text><text x="44" y="656" class="s">Table API, integration user (itil)</text><text x="44" y="672" class="s">Incidents, work notes, KB, L2 group</text><text x="44" y="688" class="s">Circuit breaker, reads retried,</text><text x="44" y="704" class="s">writes never retried</text>
+<rect x="272" y="610" width="226" height="110" rx="10" class="ext"/><text x="286" y="636" class="h">Slack</text><text x="286" y="656" class="s">Socket Mode (outbound only)</text><text x="286" y="672" class="s">Approval buttons, L2 escalation,</text><text x="286" y="688" class="s">SLO alerts. Only allow-listed</text><text x="286" y="704" class="s">approver IDs count</text>
+<rect x="514" y="610" width="226" height="110" rx="10" class="sim"/><text x="528" y="636" class="h">AWS Systems Manager</text><text x="528" y="656" class="s">2 IAM identities: read vs act</text><text x="528" y="672" class="s">8 SSM documents, CloudWatch</text><text x="528" y="688" class="s">DEMO: simulated server</text><text x="528" y="704" class="s">LIVE: pending AWS access</text>
+<rect x="756" y="610" width="214" height="110" rx="10" class="ext"/><text x="770" y="636" class="h">Model API (NVIDIA)</text><text x="770" y="656" class="s">Chat model + embeddings</text><text x="770" y="672" class="s">Sees message + facts only,</text><text x="770" y="688" class="s">never evidence or work notes</text>
+
+<!-- target -->
+<rect x="514" y="760" width="226" height="86" rx="10" class="sim"/><text x="528" y="786" class="h">Windows Server 2022</text><text x="528" y="806" class="s">IIS (W3SVC), F: data drive,</text><text x="528" y="822" class="s">metrics publisher, SSM agent</text>
+
+<!-- right column: state + observability -->
+<text x="1020" y="96" class="lay">STATE, SAFETY AND OPERATIONS</text>
+<rect x="1020" y="106" width="550" height="96" rx="10" class="st"/><text x="1036" y="132" class="h">Durable state</text><text x="1036" y="152" class="s">SQLite: run history, approval trail, attempt counters</text><text x="1036" y="168" class="s">Backup / verify / restore with hashes + audit-chain check</text><text x="1036" y="184" class="s">Restart: interrupted runs failed + escalated, stale approvals expire</text>
+<rect x="1020" y="216" width="550" height="96" rx="10" class="st"/><text x="1036" y="242" class="h">Observability</text><text x="1036" y="262" class="s">Traces with per-step timing, KPIs, model-call and fallback counters</text><text x="1036" y="278" class="s">SLOs (completion, escalation rate, latency, integration errors)</text><text x="1036" y="294" class="s">Slack alert when an SLO breaches and when it recovers</text>
+<rect x="1020" y="326" width="550" height="110" rx="10" class="st"/><text x="1036" y="352" class="h">Governance of change</text><text x="1036" y="372" class="s">Runbook required  >  deny-by-default risk tiers  >  human approval</text><text x="1036" y="388" class="s">(signed, expiring, single-use token bound to action + target + ticket)</text><text x="1036" y="404" class="s">>  one attempt  >  re-check  >  resolve, else escalate to L2</text><text x="1036" y="420" class="s">Knowledge-base articles are informational: they can never drive an action</text>
+<rect x="1020" y="450" width="550" height="132" rx="10" class="st"/><text x="1036" y="476" class="h">Quality and security evidence</text><text x="1036" y="496" class="s">193 automated tests, ~3,060 lines of product code</text><text x="1036" y="512" class="s">Authorization matrix over every route and role, attack tests</text><text x="1036" y="528" class="s">bandit and pip-audit clean on the product path</text><text x="1036" y="544" class="s">Load test: ~440 req/s, p95 ~250 ms, 0 server errors (fake backends)</text><text x="1036" y="560" class="s">Not done: independent penetration test, live AWS run</text>
+<rect x="1020" y="610" width="550" height="236" rx="10" class="band"/>
+<text x="1036" y="636" class="h">Legend</text>
+<rect x="1036" y="650" width="26" height="16" rx="4" class="agent"/><text x="1072" y="663" class="s">Agent / AI-assisted component</text>
+<rect x="1036" y="676" width="26" height="16" rx="4" class="act"/><text x="1072" y="689" class="s">The only component that can change the server</text>
+<rect x="1036" y="702" width="26" height="16" rx="4" class="ext"/><text x="1072" y="715" class="s">External system, verified live</text>
+<rect x="1036" y="728" width="26" height="16" rx="4" class="sim"/><text x="1072" y="741" class="s">Simulated today (AWS live pending)</text>
+<path d="M1036 770 H1062" class="ar"/><text x="1072" y="774" class="s">Request / control flow</text>
+<path d="M1036 794 H1062" class="arr"/><text x="1072" y="798" class="s">Approved change (human in the loop)</text>
+<path d="M1036 818 H1062" class="ard"/><text x="1072" y="822" class="s">Read-only / informational flow</text>
+
+<!-- flows -->
+<path d="M180 176 V192 M820 176 V192 M180 192 H820" class="ar" style="marker-end:none"/><path d="M500 176 V222" class="ar"/>
+<path d="M500 286 V332" class="ar"/>
+<path d="M500 432 V472" class="ar"/>
+<path d="M500 576 V594 M143 594 H863" class="ar" style="marker-end:none"/>
+<path d="M143 594 V610" class="ar"/><path d="M385 594 V610" class="ar"/><path d="M627 594 V610" class="arr"/><path d="M863 594 V610" class="ard"/>
+<path d="M627 720 V760" class="arr"/>
+</svg>
+</body></html>
