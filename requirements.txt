@@ -8,3 +8,4 @@ slack_bolt>=1.18
 # opentelemetry-api>=1.24
 # opentelemetry-sdk>=1.24
 # opentelemetry-exporter-otlp-proto-http>=1.24
+waitress>=3

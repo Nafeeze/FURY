@@ -38,15 +38,16 @@ class Agent:
 class RemoteAgent:
     """Talks to an agent served over HTTP (see serve())."""
     def __init__(self, url):
-        self.url = url.rstrip("/")
-        with urllib.request.urlopen(self.url + "/.well-known/agent.json", timeout=10) as r:
+        from .netsafe import require_http
+        self.url = require_http(url)
+        with urllib.request.urlopen(self.url + "/.well-known/agent.json", timeout=10) as r:   # nosec B310: validated above
             c = json.loads(r.read())
         self.name = c["name"]; self._card = c; self.skills = {s: None for s in c["skills"]}
     def card(self): return self._card
     def run(self, task):
         body = json.dumps({"skill": task.skill, "input": task.input, "sender": task.sender}).encode()
         req = urllib.request.Request(self.url + "/tasks", data=body, headers={"Content-Type": "application/json"}, method="POST")
-        with urllib.request.urlopen(req, timeout=120) as r:
+        with urllib.request.urlopen(req, timeout=120) as r:   # nosec B310: self.url validated in __init__
             d = json.loads(r.read())
         task.state, task.output, task.error = d["state"], d.get("output", {}), d.get("error", "")
         return task

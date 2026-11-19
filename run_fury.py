@@ -71,6 +71,12 @@ def main():
                  + chr(10) + "Create a token:  python -m fury.auth new <name> admin   then set FURY_API_TOKENS in .env"
                  + chr(10) + "(or set FURY_AUTH=off to run unauthenticated on a trusted machine, at your own risk).")
     app = create_app(ctx, demo=fake_target is not None, auth=api_auth)
+    kb_every = float(os.getenv("FURY_KB_REFRESH_SECONDS", "900"))   # 0 disables ServiceNow knowledge ingestion
+    if kb_every > 0:
+        def _kb_loop():
+            while True:
+                ctx.kb.refresh(); time.sleep(kb_every)
+        threading.Thread(target=_kb_loop, daemon=True).start()
     slo_every = float(os.getenv("FURY_SLO_ALERT_SECONDS", "60"))   # 0 disables
     if slo_every > 0:
         from fury.slo_alert import SloWatcher

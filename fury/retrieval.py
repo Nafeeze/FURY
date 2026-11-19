@@ -59,7 +59,7 @@ def _ranks(scores):
     order = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
     return {i: r for r, i in enumerate(order, 1) if scores[i] > 0}
 
-def search(rbs, query, role="engineer", k=3, rrf_k=60):
+def search(rbs, query, role="engineer", k=3, rrf_k=60, vectors=None):
     """Return up to k cited hits, best first. role gates access; retired/draft content is never returned."""
     pool = [c for c in chunks(rbs) if c["status"] == "active" and ("all" in c["access"] or role in c["access"])]
     if not pool or not query.strip(): return []
@@ -70,9 +70,17 @@ def search(rbs, query, role="engineer", k=3, rrf_k=60):
     q = qtokens(query); min_cov = float(os.getenv("FURY_RETRIEVAL_MIN_COVERAGE", "0.34"))
     cov = [(len(q & _toks(c["text"])) / len(q)) if q else 0 for c in pool]      # share of the question's own terms present in the chunk
     ok = [(ls[i] > 0 and cov[i] >= min_cov) or fs[i] >= min_fuzzy for i in range(len(pool))]
+    # Optional third ranker: embedding similarity. Same governance: a chunk must clear the semantic floor to count as evidence.
+    sem = None
+    if vectors is not None:
+        vs = vectors.scores(query, [c["text"] for c in pool])
+        if vs is not None:
+            vmin = float(os.getenv("FURY_EMBED_MIN", "0.55"))
+            ok = [ok[i] or vs[i] >= vmin for i in range(len(pool))]
+            sem = _ranks([v if vs[i] >= vmin else 0 for i, v in enumerate(vs)])
     lex = _ranks([s if ok[i] else 0 for i, s in enumerate(ls)]); fuzzy = _ranks([s if ok[i] else 0 for i, s in enumerate(fs)])
     fused = Counter()
-    for ranking in (lex, fuzzy):
+    for ranking in (lex, fuzzy) + ((sem,) if sem else ()):
         for i, r in ranking.items(): fused[i] += 1.0 / (rrf_k + r)
     max_age = float(os.getenv("FURY_RUNBOOK_MAX_AGE_DAYS", "365")); hits, seen = [], set()
     for i, score in fused.most_common():

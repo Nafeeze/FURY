@@ -19,7 +19,8 @@ OPEN_EXCLUDED_STATES = "6,7,8"   # Resolved, Closed, Canceled: never count as "a
 class SnowClient:
     """Real ServiceNow Table API client (stdlib only). Credentials come from the environment, never logged."""
     def __init__(self, base_url, user, password, timeout=20):
-        self.base, self.timeout, self.user = base_url.rstrip("/"), timeout, user
+        from .netsafe import require_http
+        self.base, self.timeout, self.user = require_http(base_url), timeout, user
         self._auth = "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
         self._sid, self._cc, self.close_choices = {}, None, []
     def close_code(self):
@@ -35,7 +36,7 @@ class SnowClient:
         req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body is not None else None,
                                      headers={"Authorization": self._auth, "Accept": "application/json", "Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:   # nosec B310: base URL validated by netsafe.require_http (https or loopback)
                 return json.loads(r.read() or b"{}").get("result")
         except urllib.error.HTTPError as e:
             raise SnowError(f"ServiceNow {method} {path} -> HTTP {e.code}: {e.read()[:200]!r}")
@@ -74,10 +75,16 @@ class SnowClient:
     def add_note(self, number, text): self.update(number, {"work_notes": text})
     def list_recent(self, key, limit=25):
         r = self._req("GET", "/api/now/table/incident", params={"sysparm_query": f"short_descriptionLIKE{key}^ORDERBYDESCsys_created_on", "sysparm_limit": limit,
-                      "sysparm_display_value": "true", "sysparm_fields": "number,short_description,state,priority,assignment_group,sys_created_on,sys_id"})
+                      "sysparm_display_value": "true", "sysparm_fields": "number,short_description,state,priority,assignment_group,assigned_to,sys_created_on,sys_id"})
         for i in r or []: self._sid[i["number"]] = i["sys_id"]
         return [{**{k: i[k] for k in ("number", "short_description", "state", "priority", "sys_created_on")},
-                 "assignment_group": (i["assignment_group"] or {}).get("display_value", "") if isinstance(i["assignment_group"], dict) else i["assignment_group"]} for i in r or []]
+                 "assignment_group": (i["assignment_group"] or {}).get("display_value", "") if isinstance(i["assignment_group"], dict) else i["assignment_group"],
+                 "assigned_to": ((i.get("assigned_to") or {}).get("display_value", "") if isinstance(i.get("assigned_to"), dict) else i.get("assigned_to") or "").strip()} for i in r or []]
+    def list_kb(self, limit=200):
+        """Published knowledge articles (read-only). Needs read access to kb_knowledge, which the itil role has."""
+        r = self._req("GET", "/api/now/table/kb_knowledge", params={"sysparm_query": "workflow_state=published^ORDERBYnumber", "sysparm_limit": limit, "sysparm_display_value": "true",
+                      "sysparm_fields": "number,short_description,text,workflow_state,sys_updated_on,kb_knowledge_base,version"})
+        return r or []
     def get_notes(self, number):
         r = self._req("GET", "/api/now/table/sys_journal_field", params={"sysparm_query": f"element_id={self._sys_id(number)}^element=work_notes^ORDERBYsys_created_on",
                       "sysparm_fields": "value,sys_created_on,sys_created_by"})
@@ -108,9 +115,10 @@ class FakeSnow:
     def claim(self, number): self.update(number, {"state": "2", "assigned_to": "fury_integration"}); return True
     def add_note(self, number, text): self._chk(); self.incidents[number]["work_notes"].append(text)
     def list_recent(self, key, limit=25):
-        return [{"number": n, "short_description": i["short_description"], "state": i["state"], "priority": "2", "assignment_group": i["assignment_group"], "sys_created_on": ""}
+        return [{"number": n, "short_description": i["short_description"], "state": i["state"], "priority": "2", "assignment_group": i["assignment_group"], "assigned_to": i.get("assigned_to", ""), "sys_created_on": ""}
                 for n, i in sorted(self.incidents.items(), reverse=True)[:limit]]
     def get_notes(self, number): return [{"at": "", "by": "fury", "text": t} for t in self.incidents[number]["work_notes"]]
+    def list_kb(self, limit=200): return list(getattr(self, "kb_articles", []))
     def close_code(self): return "Solved (Permanently)"
     def find_group(self, name): self._chk(); return name if name in self.groups else None
     def ensure_group(self, name): return self.find_group(name)

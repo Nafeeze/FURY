@@ -24,6 +24,64 @@ def final_message(out):
     return str(out)
 
 
+MAX_MESSAGE_CHARS = 1000   # same limit the UI enforces; the server must not rely on the browser
+
+def _facts_safe(text):
+    return telemetry.redact(text, 3000) if text else ""
+
+def grounded_reply(ctx, intent, text):
+    """Phrase an answer with the model from deterministic facts; on any failure return the deterministic text itself.
+    Privacy: only runbook text, ticket numbers, states and team names are sent. Work notes and server evidence never are."""
+    if intent == "howto":
+        base = howto_reply(ctx, text)
+        if base.startswith("I do not have a runbook"):
+            kb = kb_answer(ctx, text)   # no approved runbook: fall back to the organisation's ServiceNow knowledge articles (informational only)
+            if kb: return kb
+            return LLM.compose("howto_no_runbook", "FURY has no runbook that covers this question.", text) or base
+        head, sep, tail = base.partition("\nSource:")
+        composed = LLM.compose("howto", "Runbook (authoritative steps):\n" + head, text)
+        return (composed + "\n\nSource:" + tail) if composed else base
+    if intent == "help":
+        return LLM.compose("help", HELP_TEXT, text) or HELP_TEXT
+    if intent == "incident_status":
+        base = incident_status(ctx, text)
+        if base.startswith("I could not"): return base
+        first, sep, notes = base.partition("\nLatest notes:")
+        composed = LLM.compose("incident_status", _facts_safe(first), text)
+        return (composed + ("\n\nLatest notes:" + notes if notes else "")) if composed else base
+    base = incident_list(ctx)
+    if not LLM.enabled(): return base
+    lead = LLM.compose("incident_list", _facts_safe(base), text)
+    if base.startswith(("I could not", "There are no open")): return lead or base
+    return (lead + "\n\n" + base) if lead else base
+
+def kb_answer(ctx, text):
+    """Answer a how/why question from ingested ServiceNow knowledge articles. Always labelled informational and cited.
+    Returns None when no article supports the question (the caller then says it has no information)."""
+    docs = getattr(getattr(ctx, "kb", None), "docs", None)
+    if not docs: return None
+    hits = retrieval.search(docs, text, k=3, vectors=getattr(ctx, "vectors", None))
+    if not hits: return None
+    cites = sorted({h["runbook"] for h in hits})
+    facts = "Knowledge articles from ServiceNow (INFORMATIONAL guidance, not an approved fix procedure; FURY will not run anything from them):\n" + \
+            "\n".join(f"[{h['runbook']}] {h['title']}: {h['text']}" for h in hits)
+    composed = LLM.compose("howto_kb", _facts_safe(facts), text)
+    body = composed or f"{hits[0]['title']}: {hits[0]['text']}"
+    return body + "\n\nSource: ServiceNow knowledge " + ", ".join(cites) + " (informational, not an approved fix). Any change on the server still needs a runbook and the SRE Admin's approval."
+
+def narrate_outcome(out):
+    """One or two natural sentences for a finished run, built only from the structured outcome (never raw evidence)."""
+    fixed = final_message(out)
+    o = out.get("outcome")
+    if o not in ("resolved", "escalated", "false_alarm", "duplicate"): return fixed
+    facts = (f"outcome: {o}\nticket: {out.get('ticket') or 'none'}\nreason: {out.get('reason') or 'n/a'}\nteam: {out.get('team') or 'n/a'}\n"
+             "meaning: resolved = the SRE Admin approved the fix, FURY ran it and re-checked the server, which is healthy; "
+             "escalated = FURY could not fix it itself, handed the ticket to the L2 team and notified them on Slack; "
+             "false_alarm = the checks found the server healthy so no ticket was opened; "
+             "duplicate = an open incident already tracks this and a note was added to it.")
+    return LLM.compose("run_outcome", _facts_safe(facts), "") or fixed
+
+
 # ---------------- Chat intent layer: only real, confirmed SRE problems may reach triage ----------------
 INC_RE = re.compile(r"\bINC\d{6,9}\b", re.I)
 PROBLEM = {"down", "full", "high", "slow", "error", "errors", "fail", "failed", "failing", "failure", "stopped", "crash", "crashed", "outage",
@@ -101,7 +159,8 @@ def incident_status(ctx, text):
     except Exception:
         return "I could not reach ServiceNow just now. Please try again in a moment."
     st = STATE.get(str(row["state"]), row["state"])
-    out = f"{n}: {row['short_description']}\nState: {st}. Assigned to: {row.get('assignment_group') or 'nobody yet'}."
+    owner = row.get("assigned_to") or ""; team = row.get("assignment_group") or ""
+    out = f"{n}: {row['short_description']}\nState: {st}. " + (f"Owner: {owner}. " if owner else "") + (f"Team: {team}." if team else ("" if owner else "Not assigned yet."))
     if notes: out += "\nLatest notes:\n" + "\n".join("- " + x["text"][:300] for x in notes)
     return out
 
@@ -115,7 +174,7 @@ def howto_reply(ctx, text):
     rbs = ctx.bus.agents["knowledge"].rbs
     rb, _ = RB.match(rbs, text)
     if not rb:   # fall back to governed retrieval (fuzzy + lexical); it abstains when nothing supports the question
-        hits = retrieval.search(rbs, text, k=1)
+        hits = retrieval.search(rbs, text, k=1, vectors=getattr(ctx, "vectors", None))
         rb = next((r for r in rbs if hits and r.id == hits[0]["runbook"]), None)
     if not rb: return "I do not have a runbook for that. If something is actually broken, describe the symptom and I will check it."
     steps = "\n".join(f"{s.n}. {s.text}" for s in rb.steps)
@@ -125,6 +184,10 @@ class Ctx:
     def __init__(self, bus, triage, snow, chat, instance, demo_target=None, store=None, audit=None):
         self.bus, self.triage, self.snow, self.chat, self.instance, self.demo_target = bus, triage, snow, chat, instance, demo_target
         self.runs, self.lock, self.poller, self.store = {}, threading.Lock(), None, store
+        from . import kb as KB, vectors as VEC
+        self.kb = KB.KnowledgeBase(snow)
+        # Semantic search is opt-in (FURY_SEMANTIC=on) until its relevance floor (FURY_EMBED_MIN) has been calibrated against the golden set.
+        self.vectors = VEC.VectorIndex() if (LLM.enabled() and os.getenv("FURY_SEMANTIC", "off").lower() == "on") else None
         self.audit = audit or AUD.Audit(os.getenv("FURY_AUDIT_LOG") or None)
         if store:
             store.recover_interrupted(); store.prune(int(os.getenv("FURY_RETENTION_DAYS", "90"))); self.runs.update(store.load_runs())
@@ -158,12 +221,20 @@ class Ctx:
                           "out": {"outcome": "reply", "message": message}, "at": time.strftime("%H:%M:%S")}
         self.save(self.runs[rid])
         return rid
+    def _message(self, run):
+        out = run["out"]
+        if not out: return None
+        if out.get("outcome") == "reply": return out["message"]
+        if "_narration" not in run:
+            run["_narration"] = None                          # claim the slot so concurrent polls do not each call the model
+            run["_narration"] = narrate_outcome(out)
+        return run["_narration"] or final_message(out)
     def view(self, run):
         s, e = run["start"], run["end"]
         steps = [] if s is None else [{"text": STEP_TEXT[x["skill"]], "state": x["state"]} for x in self.bus.trace[s:e] if STEP_TEXT.get(x["skill"])]
         d = {k: run[k] for k in ("id", "label", "source", "state", "at")}; d["trace_id"] = run.get("trace_id"); d["session"] = run.get("session")
         d.update(steps=steps, ticket=(run["out"] or {}).get("ticket") or (self.triage.ticket if run["state"] == "running" else None),
-                 outcome=(run["out"] or {}).get("outcome"), message=final_message(run["out"]) if run["out"] else None, waiting_approval=bool(self.chat.pending()) and run["state"] == "running")
+                 outcome=(run["out"] or {}).get("outcome"), message=self._message(run), waiting_approval=bool(self.chat.pending()) and run["state"] == "running")
         return d
 
 def create_app(ctx, demo=False, auth=None):
@@ -193,8 +264,12 @@ def create_app(ctx, demo=False, auth=None):
     def index(): return send_from_directory(ui, "index.html")
     @app.post("/api/chat")
     def chat():
-        text = (request.get_json(silent=True) or {}).get("message", "").strip()
+        body = request.get_json(silent=True)
+        msg = body.get("message") if isinstance(body, dict) else None
+        if not isinstance(msg, str): return jsonify(error="send a JSON object like {\"message\": \"...\"}"), 400
+        text = msg.strip()
         if not text: return jsonify(error="empty message"), 400
+        if len(text) > MAX_MESSAGE_CHARS: return jsonify(error=f"message too long (limit {MAX_MESSAGE_CHARS} characters)"), 413
         session_id = (request.headers.get("X-Fury-Session") or "default")[:80]
         if not session_policy.begin(session_id, LLM.SESSIONS.reset):
             return jsonify(run=ctx.answer(text[:60], SESSION_BUSY))
@@ -223,7 +298,9 @@ def create_app(ctx, demo=False, auth=None):
                     handed_off = True
                     link(rid, root, session_id)
                     return jsonify(run=rid)
-                if verdict and verdict.get("reply") and intent in ("help", "greeting", "off_topic", "clarify", "howto"):
+                if intent in ("howto", "incident_status", "incident_list", "help"):
+                    reply = grounded_reply(ctx, intent, text)   # facts come from FURY's own code; the model only phrases them (or falls back to fixed text)
+                elif verdict and verdict.get("reply") and intent in ("greeting", "off_topic", "clarify"):
                     reply = verdict["reply"]
                 else:
                     reply = {"greeting": "You are welcome." if re.match(r"^(thanks|thank you|thx)", text.strip().lower()) else "Goodbye." if text.strip().lower().startswith("bye") else "Hello. Tell me what is wrong with the server, or ask about an incident.", "help": HELP_TEXT, "clarify": CLARIFY,
@@ -257,6 +334,12 @@ def create_app(ctx, demo=False, auth=None):
         return jsonify(head=ctx.audit.head, events=ctx.audit.recent(100))
     @app.get("/api/obs/slo")
     def obs_slo(): return jsonify(slo.evaluate())
+    @app.get("/api/kb")
+    def kb_status(): return jsonify(count=len(ctx.kb.docs), last_ok=ctx.kb.last_ok, error=ctx.kb.last_error, articles=[{"id": d.id, "title": d.title, "version": d.version} for d in ctx.kb.docs])
+    @app.post("/api/kb/refresh")
+    def kb_refresh():
+        n = ctx.kb.refresh(); ctx.audit.record(actor("kb"), "kb.refresh", "ok" if not ctx.kb.last_error else "error", count=n)
+        return jsonify(count=n, error=ctx.kb.last_error)
     @app.get("/api/health")
     def health():
         """Per-integration health: ok / degraded / open (circuit breaker). Unwrapped (fake or direct) integrations report 'unmonitored'."""

@@ -69,7 +69,7 @@ class Store:
     def approval_update(self, aid, status, approver=None, detail=None):
         col = "decided_at" if status in ("approved", "rejected", "expired", "denied") else "finished_at"
         with self._lock:
-            self._db.execute(f"UPDATE approvals SET status=?, approver=COALESCE(?, approver), detail=COALESCE(?, detail), {col}=datetime('now') WHERE id=?",
+            self._db.execute(f"UPDATE approvals SET status=?, approver=COALESCE(?, approver), detail=COALESCE(?, detail), {col}=datetime('now') WHERE id=?",  # nosec B608: col is one of two fixed literals chosen above, never user input
                              (status, approver, (detail or None) and str(detail)[:300], aid))
             self._db.commit()
 

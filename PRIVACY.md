@@ -74,3 +74,19 @@ the eval/telemetry reports themselves safe to share without a second review.
 ```
 python tests/eval_set.py          # includes a "Privacy eval" section
 ```
+
+## Update 2026-11-19: what else the model now sees
+
+`classify()` is no longer the only call. The chat now also asks the model to **phrase replies** from facts FURY's own code
+supplies (`llm.compose`), and, if `FURY_SEMANTIC=on`, to **embed** text for semantic search (`llm.embed`).
+
+Sent to the model for replies: the user's current message (capped), the static product description, and FACTS limited to
+runbook text (authored by the team), ServiceNow **knowledge article** text (published, organisation-approved), ticket numbers,
+states, team names, and outcome words (`resolved`, `escalated`, ...). Instance IDs and similar identifiers are scrubbed by
+`telemetry.redact` first.
+
+Still never sent: work notes, server check results/evidence, approver identities, secrets, or raw chat history.
+Sent for embeddings: runbook and knowledge-article chunks (once, then cached) and the user's search question.
+
+Model output is validated before it is shown: no links, no credential words, no ticket numbers that were not in the facts,
+length-limited. On any failure FURY shows its fixed deterministic text instead.

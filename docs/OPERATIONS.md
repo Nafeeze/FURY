@@ -27,6 +27,9 @@ Refuses to start with real integrations and no API token unless `FURY_AUTH=off` 
 | `FURY_DB`, `FURY_AUDIT_LOG`, `FURY_RETENTION_DAYS` | Durable state, tamper-evident audit file, retention (default 90 days) |
 | `FURY_HOST`, `FURY_PORT` | Bind address (default `127.0.0.1:8080`) |
 | `FURY_SLO_ALERT_SECONDS` | SLO check interval (default 60; `0` disables alerts) |
+| `FURY_LLM=on`, `NVIDIA_API_KEY`, `NVIDIA_MODEL`, `NVIDIA_FALLBACK_MODELS`, `NVIDIA_EMBED_MODEL` | The chat model. FURY tries the primary then the fallbacks and skips a retired model for 10 minutes. **Hosted models are retired without notice** (the original default died on 2026-11-18): if `/api/obs/overview` shows many `llm.model.error` or the chat sounds canned, list current models at `<NVIDIA_BASE_URL>/models` and update `NVIDIA_MODEL`. FURY always falls back to fixed text, never to silence. |
+| `FURY_SEMANTIC=on`, `FURY_EMBED_MIN` | Optional semantic (embedding) search; keep off until the floor is calibrated against the golden set |
+| `FURY_KB_REFRESH_SECONDS` | How often to ingest published ServiceNow knowledge articles (default 900; `0` disables) |
 | `FURY_SECRETS_PROVIDER=aws`, `FURY_SECRETS_ID` | Load secrets from AWS Secrets Manager (**UNVERIFIED** against live AWS) |
 
 `.env` is git-ignored. Never commit it, paste it in chat, or put real tokens in documentation.
@@ -51,13 +54,19 @@ Refuses to start with real integrations and no API token unless `FURY_AUTH=off` 
 | Approval request seen in Slack but nothing happens after a restart | Pending approvals do not survive a restart; they expire and the incident is escalated | Re-raise the incident |
 | 401 from the UI | Token missing or wrong | Enter a valid token in the sign-in box |
 | 429 | Auth throttle | Wait about a minute |
-| Cannot read work notes in the UI | Integration user lacks read access to the journal table | Notes are still written; grant read via a ServiceNow ACL if the UI must show them |
+| Cannot read work notes in the UI | Integration user lacks read access to the journal table | Run `servicenow_setup/fury_snow_acl.js` once as admin (creates one narrow read ACL: incident work notes only) |
+| Chat answers are generic or canned | Model retired or API key invalid; FURY fell back to fixed text | See the `FURY_LLM` row above; check `GET /api/obs/overview` for `llm.model.error` |
+| "How do I ..." gets no knowledge-base answer | No published KB articles, or ingestion cannot read them | `GET /api/kb` shows count and last error; seed samples with `servicenow_setup/fury_snow_kb_seed.js`; `POST /api/kb/refresh` (admin) forces a refresh |
 | SLO breach message in Slack | See the message; open Insights to find the failing step | Escalation-rate breaches usually mean runbooks do not cover real incidents |
 
 ## 6. Backup and recovery
-- State is the SQLite file at `FURY_DB` and the audit log at `FURY_AUDIT_LOG`. Copy both while FURY is stopped, or use SQLite's `.backup`.
+- State is the SQLite file at `FURY_DB` and the audit log at `FURY_AUDIT_LOG`.
+- **Back up** (safe while FURY runs): `python -m fury.backup backup <dir>`. It uses SQLite's online backup, re-verifies the audit hash chain, and writes `manifest.json` with SHA-256 hashes.
+- **Check a backup:** `python -m fury.backup verify <dir>` (hashes, audit chain, SQLite integrity).
+- **Restore:** stop FURY, then `python -m fury.backup restore <dir> <new_db_path> <new_audit_path>` (refuses to overwrite without `--force`, verifies first, writes atomically). Point `FURY_DB` / `FURY_AUDIT_LOG` at the restored files and start FURY.
+- The round trip (backup, tamper detection, restore into a fresh location) is covered by `tests/test_backup.py`. Schedule the backup (Task Scheduler / cron) and copy the folder off the machine.
 - After a restart, interrupted runs are marked failed and escalated, and stale approvals expire. Workflows are **not** resumed.
-- Disaster recovery has **not** been tested (no second environment). Recreating FURY needs the repo, `.env` (or the Secrets Manager secret), and the SQLite/audit files if history matters.
+- A full rebuild on a second machine has not been rehearsed end to end; the data-restore step has. Recreating FURY needs the repo, `.env` (or the Secrets Manager secret; **never** in the backup), and the restored SQLite/audit files if history matters.
 
 ## 7. TLS and exposure
 FURY has no TLS of its own. Keep it on `127.0.0.1` and terminate TLS in front of it: `deploy/Caddyfile` is a ready reverse-proxy config, and `deploy/Dockerfile` builds a non-root container (**UNVERIFIED**: neither has been run by the author). The UI and API send `nosniff`, `X-Frame-Options: DENY`, a same-origin CSP and `Cache-Control: no-store` on API responses.
