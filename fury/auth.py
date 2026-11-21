@@ -49,7 +49,7 @@ def required_role(method, path):
         return "admin"
     if method == "GET":
         return "viewer"
-    if method == "POST" and path in ("/api/chat", "/api/chat/reset"):
+    if method == "POST" and path in ("/api/chat", "/api/chat/reset", "/api/voice/session", "/api/voice/turn"):
         return "operator"
     return "admin"
 

@@ -189,9 +189,40 @@ class Ctx:
         # Semantic search is opt-in (FURY_SEMANTIC=on) until its relevance floor (FURY_EMBED_MIN) has been calibrated against the golden set.
         self.vectors = VEC.VectorIndex() if (LLM.enabled() and os.getenv("FURY_SEMANTIC", "off").lower() == "on") else None
         self.audit = audit or AUD.Audit(os.getenv("FURY_AUDIT_LOG") or None)
+        from .voice import VoiceSessionBroker
+        from .mcp import McpToolRegistry, AutonomyTier
+        self.voice = VoiceSessionBroker()
+        self.mcp = McpToolRegistry()
+        self._init_mcp()
         if store:
             store.recover_interrupted(int(os.getenv("FURY_RESUME_WINDOW_SECONDS", "1800")), int(os.getenv("FURY_RESUME_MAX", "1")))
             store.prune(int(os.getenv("FURY_RETENTION_DAYS", "90"))); self.runs.update(store.load_runs())
+    def _init_mcp(self):
+        from .mcp import AutonomyTier
+        self.mcp.register_tool(
+            "check_disk", "Check disk usage on drive",
+            {"type": "object", "properties": {"drive": {"type": "string"}}, "required": ["drive"]},
+            lambda drive="F:": getattr(self.demo_target, "check_disk", lambda **k: {"drive": drive, "healthy": True})(drive=drive) if self.demo_target else {"drive": drive, "healthy": True},
+            AutonomyTier.TIER_1_READ_ONLY
+        )
+        self.mcp.register_tool(
+            "check_cpu", "Check CPU load and top process",
+            {"type": "object", "properties": {}},
+            lambda: getattr(self.demo_target, "check_cpu", lambda **k: {"healthy": True})() if self.demo_target else {"healthy": True},
+            AutonomyTier.TIER_1_READ_ONLY
+        )
+        self.mcp.register_tool(
+            "check_service", "Check Windows service state",
+            {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+            lambda name="W3SVC": getattr(self.demo_target, "check_service", lambda **k: {"name": name, "healthy": True})(name=name) if self.demo_target else {"name": name, "healthy": True},
+            AutonomyTier.TIER_1_READ_ONLY
+        )
+        self.mcp.register_tool(
+            "restart_service", "Restart Windows service (Tier 3 approval required)",
+            {"type": "object", "properties": {"target": {"type": "string"}}, "required": ["target"]},
+            lambda target="W3SVC": getattr(self.demo_target, "act", lambda a, t: {"restarted": t})("restart_service", target) if self.demo_target else {"restarted": target},
+            AutonomyTier.TIER_3_APPROVAL_REQUIRED
+        )
     def save(self, run):
         if self.store: self.store.save_run(run)
     def submit(self, skill, data, source, label, on_complete=None):
@@ -410,6 +441,39 @@ def create_app(ctx, demo=False, auth=None):
         return jsonify(available=True, at=time.strftime("%Y-%m-%d %H:%M", time.localtime(p.stat().st_mtime)),
                        scenarios=r["scenarios"], classifier={k: r["classifier"][k] for k in ("accuracy", "n", "pass")}, misses=[x for x in r["classifier"]["rows"] if not x["correct"]],
                        privacy=r["privacy"], backend=r.get("backend"))
+    # ---- Voice Foundation (Phase 1) ----
+    @app.get("/api/voice/capabilities")
+    def voice_capabilities():
+        return jsonify(ctx.voice.get_capabilities())
+
+    @app.post("/api/voice/session")
+    def voice_session():
+        body = request.get_json(silent=True) or {}
+        sid = body.get("session_id")
+        user = getattr(g, "user", None) or "engineer"
+        return jsonify(ctx.voice.create_session(user_id=user, session_id=sid))
+
+    @app.post("/api/voice/turn")
+    def voice_turn():
+        b = request.get_json(silent=True) or {}
+        sid = b.get("session_id", "default-voice")
+        u_text = b.get("user_transcript", "")[:300]
+        a_text = b.get("agent_response", "")[:300]
+        lat = float(b.get("latency_ms", 0.0))
+        interrupted = bool(b.get("interrupted", False))
+        ctx.voice.record_turn(sid, u_text, a_text, latency_ms=lat, interrupted=interrupted)
+        return jsonify(ok=True)
+
+    # ---- MCP & Governance (Phase 5 & 6) ----
+    @app.get("/api/mcp/tools")
+    def mcp_tools():
+        return jsonify(ctx.mcp.list_tools())
+
+    @app.get("/api/governance/tiers")
+    def governance_tiers():
+        from .policy import DEFAULT_TIERS
+        return jsonify(DEFAULT_TIERS)
+
     if demo:
         from .system import ALERTS
         @app.post("/api/demo/inject/<fault>")

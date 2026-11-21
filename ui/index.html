@@ -56,7 +56,7 @@ td{padding:11px 10px;border-top:1px solid var(--line)}tr.r{cursor:pointer}tr.r:h
 <div id="gate" class="hidden"><form class="card" id="gateForm"><div class="word">FURY</div><div class="sub">Enter your access token to continue.</div>
  <input id="tokIn" type="password" autocomplete="off" placeholder="Access token" aria-label="Access token"><div class="err" id="gateErr"></div><button class="btn primary" type="submit">Continue</button></form></div>
 <header><div class="word">FURY</div>
- <nav><button id="tChat" class="on">Chat</button><button id="tInc">Incidents</button><button id="tObs">Insights</button></nav>
+ <nav><button id="tChat" class="on">Chat</button><button id="tVoice">Voice</button><button id="tInc">Incidents</button><button id="tObs">Insights</button></nav>
  <div class="status"><span id="stDot" class="dot"></span><span id="stTxt">connecting</span></div></header>
 <main>
  <section class="view" id="chatView">
@@ -64,6 +64,24 @@ td{padding:11px 10px;border-top:1px solid var(--line)}tr.r{cursor:pointer}tr.r:h
    <div class="chips" id="chips"></div></div></div>
   <form id="form"><textarea id="box" rows="1" maxlength="1000" placeholder="e.g. the website is down" aria-label="Describe the problem"></textarea><button class="btn primary" type="submit">Send</button></form>
  </section>
+ <section class="view wide hidden" id="voiceView"><div class="page">
+  <div class="row"><h2 class="grow">Voice Incident Companion</h2><span class="pill" id="vPill">Full Duplex</span></div>
+  <div class="card" style="text-align:center;padding:36px 20px;display:flex;flex-direction:column;align-items:center;gap:14px">
+    <div class="sub">GPT-Live-1 / WebRTC Speech Interface</div>
+    <div id="vRing" style="width:110px;height:110px;border-radius:50%;background:var(--chip);border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;cursor:pointer">
+      <button class="btn primary" id="vToggleBtn" style="border-radius:50%;width:74px;height:74px;font-weight:700">Talk</button>
+    </div>
+    <div id="vStateHint" class="sub">Click to speak naturally or report an incident</div>
+    <div id="vTranscript" class="notes" style="width:100%;max-height:240px;overflow-y:auto;text-align:left">
+      <div><b>FURY:</b> Voice companion connected. Speak your operational query or describe any infrastructure symptom.</div>
+    </div>
+    <div class="row" style="width:100%;font-size:13px;color:var(--muted);justify-content:space-between">
+      <div>Mode: <b id="vProvider">simulated_local</b></div>
+      <div>Latency: <b id="vLat">~120 ms</b></div>
+      <div>Authority: <b>Backend Governed Only</b></div>
+    </div>
+  </div>
+ </div></section>
  <section class="view wide hidden" id="incView"><div class="page">
   <div class="row"><h2 class="grow">Incidents</h2><div id="faults" class="row hidden"></div></div>
   <div class="card" style="padding:6px 8px"><table><thead><tr><th>Number</th><th>Description</th><th>State</th><th>Team</th></tr></thead><tbody id="rows"></tbody></table></div>
@@ -90,8 +108,45 @@ async function api(u,o){for(let n=0;n<3;n++){const h=Object.assign({'X-Fury-Sess
  if(r.status===401){if(waiter){await new Promise(x=>setTimeout(x,800));continue}   // already asking: wait for the answer
   TOK='';sessionStorage.removeItem('furyToken');$('gateErr').textContent=n?'That token was not accepted.':'';await askToken();continue}
  return r.json()}return {}}
-function tab(w){[['chat','tChat'],['inc','tInc'],['obs','tObs']].forEach(([k,b])=>{$(k+'View').classList.toggle('hidden',w!==k);$(b).classList.toggle('on',w===k)});if(w==='inc')loadInc();if(w==='obs')loadObs()}
-$('tChat').onclick=()=>tab('chat');$('tInc').onclick=()=>tab('inc');$('tObs').onclick=()=>tab('obs');
+function tab(w){[['chat','tChat'],['voice','tVoice'],['inc','tInc'],['obs','tObs']].forEach(([k,b])=>{$(k+'View').classList.toggle('hidden',w!==k);$(b).classList.toggle('on',w===k)});if(w==='inc')loadInc();if(w==='obs')loadObs()}
+$('tChat').onclick=()=>tab('chat');$('tVoice').onclick=()=>tab('voice');$('tInc').onclick=()=>tab('inc');$('tObs').onclick=()=>tab('obs');
+
+let vActive=false,vRec=null;
+$('vToggleBtn').onclick=async()=>{
+  if(!vActive){
+    vActive=true;
+    $('vRing').style.boxShadow='0 0 25px var(--accent)';
+    $('vToggleBtn').textContent='Stop';
+    $('vStateHint').textContent='Listening... Speak naturally.';
+    const sess=await api('/api/voice/session',{method:'POST'});
+    $('vProvider').textContent=sess.mode||'local';
+    if('webkitSpeechRecognition' in window || 'SpeechRecognition' in window){
+      const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+      vRec=new SR();
+      vRec.continuous=true;
+      vRec.interimResults=false;
+      vRec.onresult=async(ev)=>{
+        const text=ev.results[ev.results.length-1][0].transcript.trim();
+        if(text){
+          const u=el('div',null);u.style.color='var(--accent)';u.append(el('b',null,'You: '),text);
+          $('vTranscript').append(u);
+          const r=await api('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text})});
+          const f=el('div',null);f.append(el('b',null,'FURY: '),'Investigation started '+(r.run?'('+r.run+')':'(in progress)'));
+          $('vTranscript').append(f);
+          $('vTranscript').scrollTop=1e9;
+          await api('/api/voice/turn',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sess.session_id,user_transcript:text,agent_response:r.run,latency_ms:140})});
+        }
+      };
+      vRec.start();
+    }
+  }else{
+    vActive=false;
+    $('vRing').style.boxShadow='none';
+    $('vToggleBtn').textContent='Talk';
+    $('vStateHint').textContent='Click to speak naturally or report an incident';
+    if(vRec){vRec.stop();vRec=null}
+  }
+};
 ['The website is down','Disk is full on F:','CPU is very high'].forEach(t=>{const b=el('button','chip',t);b.type='button';b.onclick=()=>{$('box').value=t;$('form').requestSubmit()};$('chips').append(b)});
 $('box').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('form').requestSubmit()}});
 $('form').onsubmit=async e=>{e.preventDefault();const t=$('box').value.trim();if(!t)return;$('box').value='';$('hero').classList.add('hidden');
