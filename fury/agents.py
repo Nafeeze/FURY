@@ -62,6 +62,9 @@ class Remediation(Agent):
             if aid: self.store.approval_update(aid, status, **kw)
         if tier == policy.RESTRICTED:
             audit("denied", detail="restricted by policy"); raise PermissionError(f"{a} is restricted by policy and cannot be run by FURY")
+        if self.store and self.store.inflight(tk, a):
+            audit("denied", detail="outcome unknown after restart")
+            raise PermissionError(f"{a} on {tgt} was in progress when FURY stopped; whether it ran is unknown, so it will not be repeated. A human must check the server")
         if self._attempts(tk, a) >= 1:
             audit("denied", detail="second attempt"); raise PermissionError(f"{a} already run once for {tk}; second attempt must go to L2")
         if tier == policy.HUMAN:
@@ -76,14 +79,16 @@ class Remediation(Agent):
         else:   # policy tier: bounded, explicitly enabled by config; still audited
             approver = "policy"; audit("approved", approver=approver, detail="policy tier (no human required by configuration)")
         task.state = "working"
+        if self.store: self.store.mark_inflight(tk, a)   # if the process dies between here and the end of this call, the outcome is unknown
         try:
             with telemetry.span("tool.call", tool=a, mode="act") as sp:
                 result = self.t.act(a, tgt)
         except Exception as e:
+            if self.store: self.store.clear_inflight(tk, a)   # the call returned an error: it is known not to have completed
             audit("failed", detail=f"{type(e).__name__}: {e}"); raise
         telemetry.counter("tool.call.count", tool=a, mode="act")
         self.done[(tk, a)] = self.done.get((tk, a), 0) + 1
-        if self.store: self.store.record_attempt(tk, a)
+        if self.store: self.store.record_attempt(tk, a); self.store.clear_inflight(tk, a)
         audit("executed")
         return {"result": result, "approver": approver, "approved_at": time.strftime("%Y-%m-%d %H:%M:%S")}
 
@@ -140,9 +145,13 @@ class Comms(Agent):
                 user, decision = d
                 if user not in self.approvers:
                     self.c.post(self.ch_a, f"Ignored a response from <@{user}>: not an authorised approver."); continue
-                if decision != "approve": raise PermissionError(f"rejected by {user}")
+                if decision != "approve":
+                    getattr(self.c, "outcome", lambda r, t: None)(rid, f":x: Rejected by <@{user}> at {time.strftime('%H:%M:%S')}. Nothing was run.")
+                    raise PermissionError(f"rejected by {user}")
                 telemetry.set_attr(sp, "decision", "approved"); telemetry.counter("approval.count", decision="approved")
+                getattr(self.c, "outcome", lambda r, t: None)(rid, f":white_check_mark: Approved by <@{user}> at {time.strftime('%H:%M:%S')}.")
                 return {"decision": "approved", "approver": user, "token": approvals.sign(i["action"], i["target"], i["ticket"], user)}
+            getattr(self.c, "outcome", lambda r, t: None)(rid, ":hourglass: Expired: no authorised response in time. Nothing was run.")
             raise PermissionError("approval timed out with no authorised response")
         finally:
             getattr(self.c, "close", lambda r: None)(rid)
@@ -168,14 +177,17 @@ def decide(rb_id, ev):
 
 class Triage(Agent):
     name, description = "triage", "Owns the incident from alert to resolution or escalation"
-    def __init__(self, bus): self.ticket, self.warnings = None, []; self.bus, self.skills = bus, {"handle_alert": self.handle_alert, "handle_report": self.handle_report}
+    def __init__(self, bus):
+        self.ticket, self.warnings = None, []; self.bus, self.skills = bus, {"handle_alert": self.handle_alert, "handle_report": self.handle_report}
+        self.checkpoint = lambda **kw: None   # the orchestrator replaces this to persist progress (ticket opened, fix executed) so a restart can resume
     def handle_report(self, task):
         """An engineer describes a problem in chat. Same investigation as an alarm, different front door."""
         text = task.input["text"].strip()[:300]; words = set(RB.tokens(text)) | {w for w in text.lower().replace("?", " ").split()}
         metric = next((m for m, kw in REPORT_KEYWORDS if words & kw), None)
-        return self.handle_alert(Task(skill="handle_alert", sender="chat", input={
-            "name": f"Report-{metric or 'general'}", "description": text, "metric": metric,
-            "instance": task.input.get("instance", "i-00654e3403673c840"), "severity": "major"}))
+        data = {"name": f"Report-{metric or 'general'}", "description": text, "metric": metric,
+                "instance": task.input.get("instance", "i-00654e3403673c840"), "severity": "major"}
+        if task.input.get("_resume"): data["_resume"] = task.input["_resume"]
+        return self.handle_alert(Task(skill="handle_alert", sender="chat", input=data))
     def ok(self, skill, data):
         t = self.bus.send(self.name, skill, data)
         if t.state != "completed":
@@ -200,24 +212,39 @@ class Triage(Agent):
             pre.append(s)
         initial = [(s["tool"], s["params"]) for s in pre] if rb else GENERIC_CHECKS.get(a.get("metric"), [])
         ev = self.ok("run_checks", {"steps": [{"tool": t, "params": p} for t, p in initial]})["evidence"] if initial else []
-        if ev and ev[0]["result"].get("healthy", False):
+        resume = a.get("_resume") or {}                      # progress saved before a restart (see Ctx.resume_interrupted)
+        rt, was_acted = resume.get("ticket"), bool(resume.get("acted"))
+        if ev and ev[0]["result"].get("healthy", False) and not was_acted:
+            if rt:   # a ticket already exists but the fault is gone and FURY did not fix it: a human confirms and closes
+                self.ticket = rt
+                self.note("FURY restarted while handling this incident and the fault is no longer present; no action was taken by FURY.")
+                return self.escalate(a, rt, rb, "fault no longer present after a FURY restart; please confirm and close", ev)
             telemetry.counter("triage.outcome", outcome="false_alarm")
             return {"outcome": "false_alarm", "ticket": None, "runbook": rb["id"] if rb else None, "reason": "first check is healthy; alarm not confirmed"}
         key = f"{a['name']} {a['instance']}"
-        try:
-            tk = self.ok("open_incident", {"key": key, "short_description": f"[{key}] {a['description']}", "severity": a.get("severity", "major"),
-                         "description": f"Alarm {a['name']} on {a['instance']}: {a['description']}\nFURY confirmed the issue with read-only checks."})
-        except AgentError as e:
-            return self.escalate(a, None, rb, f"ticket could not be created ({e}); no action taken without a ticket", ev)
-        self.ticket = tk["number"]
-        if tk["duplicate"]:
-            self.note("Alarm fired again while this incident is open; no new ticket created.")
-            telemetry.counter("triage.outcome", outcome="duplicate")
-            return {"outcome": "duplicate", "ticket": self.ticket, "runbook": rb["id"] if rb else None, "reason": "open incident already exists"}
-        self.note(f"FURY detected alarm {a['name']} ({a['description']}). Runbook: {rb['citation'] + ' ' + rb['title'] if rb else 'NONE FOUND'}.\nEvidence:\n" + "\n".join(ev_line(e) for e in ev))
+        if rt:
+            self.ticket = rt
+            self.note("FURY restarted while working on this incident; resuming from its saved checkpoint" + (" (the approved fix had already run; verifying it)." if was_acted else "."))
+            telemetry.counter("triage.resumed", acted=was_acted)
+        else:
+            try:
+                tk = self.ok("open_incident", {"key": key, "short_description": f"[{key}] {a['description']}", "severity": a.get("severity", "major"),
+                             "description": f"Alarm {a['name']} on {a['instance']}: {a['description']}\nFURY confirmed the issue with read-only checks."})
+            except AgentError as e:
+                return self.escalate(a, None, rb, f"ticket could not be created ({e}); no action taken without a ticket", ev)
+            self.ticket = tk["number"]
+            if tk["duplicate"]:
+                self.note("Alarm fired again while this incident is open; no new ticket created.")
+                telemetry.counter("triage.outcome", outcome="duplicate")
+                return {"outcome": "duplicate", "ticket": self.ticket, "runbook": rb["id"] if rb else None, "reason": "open incident already exists"}
+            self.checkpoint(ticket=self.ticket)
+            self.note(f"FURY detected alarm {a['name']} ({a['description']}). Runbook: {rb['citation'] + ' ' + rb['title'] if rb else 'NONE FOUND'}.\nEvidence:\n" + "\n".join(ev_line(e) for e in ev))
         if not rb: return self.escalate(a, self.ticket, rb, "no runbook covers this issue", ev)
         before, acted, approval = ev, False, None
         for s in steps[len(pre):]:
+            if was_acted and s["type"] in ("decide", "action"):   # already decided and executed before the restart: only verify now
+                if s["type"] == "action": acted, approval = True, resume["approval"]
+                continue
             if s["type"] == "decide":
                 with telemetry.span("agent.decision", runbook=rb["id"], step=s["n"]) as dsp:
                     ok, why = decide(rb["id"], before)
@@ -231,6 +258,7 @@ class Triage(Agent):
                 if r.state != "completed":
                     self.note(f"Action NOT executed: {r.error}"); return self.escalate(a, self.ticket, rb, f"remediation not completed: {r.error}", before)
                 acted, approval = True, r.output
+                self.checkpoint(acted=True, approval=approval)
                 self.note(f"Approved by {approval['approver']} at {approval['approved_at']}. Executed {s['tool']}({s['params'].get('target')}): {short(approval['result'])}")
             elif s["type"] == "check" and acted:
                 after = self.ok("run_checks", {"steps": [{"tool": s["tool"], "params": s["params"]}]})["evidence"]

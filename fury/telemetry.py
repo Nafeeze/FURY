@@ -24,6 +24,7 @@ Env vars:
   FURY_TELEMETRY_RAW         - "on" to disable redaction (debug only; never
                                use this against a real server).
 """
+import json
 import os
 import re
 import time
@@ -147,6 +148,8 @@ class _Recorder:
                 self.spans.append(rec)
                 if len(self.spans) > self._cap:
                     self.spans = self.spans[-self._cap:]
+            if _sink is not None:
+                _sink.put(rec)
 
     def counter(self, name, value=1, **labels):
         key = (name, frozenset(labels.items()))
@@ -195,6 +198,63 @@ class _Recorder:
 
 
 _fallback = _Recorder()
+_sink = None
+
+
+class _SpanSink:
+    """Durable trace storage: finished spans (already redacted at capture) go to SQLite through a background writer, so
+    recording never slows a request and a database problem never breaks the app. Counters/histograms stay in memory."""
+
+    def __init__(self, path, retention_days=30):
+        import sqlite3, queue
+        self.path, self.days, self.dropped, self.last_error = path, retention_days, 0, ""
+        db = sqlite3.connect(path)
+        db.execute("CREATE TABLE IF NOT EXISTS spans (trace_id TEXT, span_id TEXT, start REAL, data TEXT NOT NULL)")
+        db.execute("CREATE INDEX IF NOT EXISTS spans_start ON spans(start)")
+        if retention_days > 0:
+            db.execute("DELETE FROM spans WHERE start < ?", (time.time() - retention_days * 86400,))
+        db.commit(); self._db = db
+        self._q = queue.Queue(maxsize=10000)
+        threading.Thread(target=self._run, daemon=True, name="fury-trace-writer").start()
+
+    def load(self, limit):
+        rows = self._db.execute("SELECT data FROM spans ORDER BY start DESC LIMIT ?", (limit,)).fetchall()
+        return [json.loads(d) for (d,) in reversed(rows)]
+
+    def put(self, rec):
+        try: self._q.put_nowait(rec)
+        except Exception: self.dropped += 1
+
+    def _run(self):
+        import sqlite3
+        db = sqlite3.connect(self.path)
+        while True:
+            rec = self._q.get()
+            try:
+                db.execute("INSERT INTO spans VALUES (?,?,?,?)", (rec["trace_id"], rec["span_id"], rec["start"], json.dumps(rec, default=str)))
+                db.commit()
+            except Exception as e:   # never raise into the app
+                self.last_error = f"{type(e).__name__}: {str(e)[:120]}"
+
+    def flush(self, timeout=5.0):
+        """Wait until the writer has drained the queue (used by tests and by a clean shutdown)."""
+        end = time.time() + timeout
+        while not self._q.empty() and time.time() < end: time.sleep(0.01)
+        time.sleep(0.05)
+
+
+def persist(path, retention_days=30):
+    """Keep traces across restarts: reload the newest spans now, and store every new one. Returns how many were reloaded."""
+    global _sink
+    _sink = _SpanSink(path, retention_days)
+    old = _sink.load(_fallback._cap)
+    with _fallback._lock:
+        _fallback.spans = (old + _fallback.spans)[-_fallback._cap:]
+    return len(old)
+
+
+def retention():
+    return f"{'stored in ' + os.path.basename(_sink.path) if _sink else 'in memory only'}, newest {_fallback._cap} spans shown{'' if _sink else ', cleared on restart'}"
 
 
 def reset():

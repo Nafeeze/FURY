@@ -152,7 +152,13 @@ def _post(url, headers, body, timeout):
 
 DEFAULT_MODEL = "nvidia/nemotron-3.5-bolt-e4b"
 DEFAULT_FALLBACKS = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning,google/gemma-4-31b-it"
-DEFAULT_EMBED_MODEL = "nvidia/nemotron-3.5-embed-1b"
+DEFAULT_EMBED_MODEL = "nvidia/nemotron-3-embed-1b"   # the model whose relevance floor was calibrated (see fury/vectors.py EMBED_FLOORS)
+DEFAULT_EMBED_FALLBACKS = "nvidia/nemotron-3.5-embed-1b,nvidia/nemotron-3.5-embed-8b"   # hosted embedding models come and go or get overloaded; uncalibrated ones use the strict floor
+
+def embed_models():
+    """Embedding models in order of preference. Vectors from different models are NOT comparable, so callers must use one model per query."""
+    chain = [os.getenv("NVIDIA_EMBED_MODEL") or DEFAULT_EMBED_MODEL] + [m.strip() for m in os.getenv("NVIDIA_EMBED_FALLBACK_MODELS", DEFAULT_EMBED_FALLBACKS).split(",") if m.strip()]
+    return list(dict.fromkeys(chain))
 DEAD_FOR_SECONDS = 600
 _dead = {}   # model -> monotonic time until which it is skipped (retired / not entitled / returned nothing)
 
@@ -348,13 +354,14 @@ def compose(kind, facts, question="", timeout=8):
 
 
 # ============================== embeddings (semantic search) ==============================
-def embed(texts, kind="passage", timeout=20):
-    """Return one vector per text from the embedding model, or None if embeddings are unavailable (callers keep BM25)."""
+def embed(texts, kind="passage", timeout=20, model=None):
+    """Return one vector per text from the embedding model, or None if embeddings are unavailable (callers keep BM25).
+    `model` pins a specific model (needed so a query and the passages it is compared with come from the same one)."""
     if not enabled() or not texts: return None
     try: base = _base()
     except LlmUnavailable: return None
     headers = {"Authorization": f"Bearer {os.environ['NVIDIA_API_KEY']}", "Content-Type": "application/json"}
-    model = os.getenv("NVIDIA_EMBED_MODEL", DEFAULT_EMBED_MODEL)
+    model = model or os.getenv("NVIDIA_EMBED_MODEL", DEFAULT_EMBED_MODEL)
     out = []
     try:
         for i in range(0, len(texts), 32):

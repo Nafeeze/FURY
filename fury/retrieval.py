@@ -75,7 +75,7 @@ def search(rbs, query, role="engineer", k=3, rrf_k=60, vectors=None):
     if vectors is not None:
         vs = vectors.scores(query, [c["text"] for c in pool])
         if vs is not None:
-            vmin = float(os.getenv("FURY_EMBED_MIN", "0.55"))
+            vmin = vectors.floor() if hasattr(vectors, "floor") else float(os.getenv("FURY_EMBED_MIN", "0.60"))
             ok = [ok[i] or vs[i] >= vmin for i in range(len(pool))]
             sem = _ranks([v if vs[i] >= vmin else 0 for i, v in enumerate(vs)])
     lex = _ranks([s if ok[i] else 0 for i, s in enumerate(ls)]); fuzzy = _ranks([s if ok[i] else 0 for i, s in enumerate(fs)])

@@ -55,9 +55,26 @@ def required_role(method, path):
 
 
 class Auth:
-    def __init__(self, entries, audit=None, max_failures=10, window=60.0, clock=time.monotonic):
+    def __init__(self, entries, audit=None, max_failures=10, window=60.0, clock=time.monotonic, chat_per_min=None, api_per_min=None):
         self.entries, self.audit, self.max_failures, self.window, self._clock = entries, audit, max_failures, window, clock
         self._fails = defaultdict(deque)
+        # Per-identity request limits (sliding 60 s window). Chat is tight because every message can call the paid model.
+        self.chat_per_min = int(os.getenv("FURY_RATE_CHAT_PER_MIN", "20")) if chat_per_min is None else chat_per_min
+        self.api_per_min = int(os.getenv("FURY_RATE_API_PER_MIN", "600")) if api_per_min is None else api_per_min
+        self._hits = defaultdict(deque)
+
+    def _rate_ok(self, name, path):
+        """Sliding-window limit per identity and bucket. Returns True if the request may proceed; a limit of 0 disables it."""
+        bucket, limit = ("chat", self.chat_per_min) if path == "/api/chat" else ("api", self.api_per_min)
+        if limit <= 0:
+            return True
+        q, now = self._hits[(name, bucket)], self._clock()
+        while q and now - q[0] > 60.0:
+            q.popleft()
+        if len(q) >= limit:
+            return False
+        q.append(now)
+        return True
 
     def _record(self, actor, outcome, **detail):
         if self.audit:
@@ -92,6 +109,9 @@ class Auth:
         if RANK[user["role"]] < RANK[need]:
             self._record(user["name"], "denied", reason=f"role {user['role']} lacks {need}", method=method, path=path)
             return False, 403, user, f"requires role '{need}'"
+        if not self._rate_ok(user["name"], path):
+            self._record(user["name"], "denied", reason="rate limit", method=method, path=path)
+            return False, 429, user, "rate limit reached; slow down and retry in a minute"
         return True, 200, user, ""
 
 

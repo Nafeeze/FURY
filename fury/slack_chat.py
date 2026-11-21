@@ -25,7 +25,7 @@ class SlackChat:
     def close(self, rid):
         with self.lock: self._pending.pop(rid, None); self.q.pop(rid, None)
     def pending(self):
-        with self.lock: return [{"request": r, **v} for r, v in self._pending.items()]
+        with self.lock: return [{"request": r, **{k: x for k, x in v.items() if not k.startswith("_")}} for r, v in self._pending.items()]
     # ---------- Slack I/O ----------
     def _cid(self, name):
         if name.startswith("C") and name.isupper(): return name
@@ -48,17 +48,41 @@ class SlackChat:
                   {"type": "context", "elements": [{"type": "mrkdwn", "text": "You can also reply *yes* or *no* in this thread."}]}]
         ts = self.post(channel, text, blocks)
         self.ts2req[ts] = rid
-        with self.lock: self._pending[rid] = {"text": text, "since": time.strftime("%H:%M:%S")}
+        with self.lock: self._pending[rid] = {"text": text, "since": time.strftime("%H:%M:%S"), "_msg": (self._cid(channel), ts)}
         return ts
+    def live(self, rid):
+        """True while a request is still waiting. A click on an old message (after a restart or a timeout) must not queue a phantom decision."""
+        with self.lock: return rid in self._pending
+    def outcome(self, rid, text):
+        """Replace the approval message's buttons with the result, so nobody can click a finished request and the thread shows who decided."""
+        with self.lock: p = self._pending.get(rid)
+        if not p or "_msg" not in p or self.client is None: return
+        cid, ts = p["_msg"]
+        try:
+            self.client.chat_update(channel=cid, ts=ts, text=text, blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": p["text"]}},
+                                    {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}])
+        except Exception: pass   # cosmetic: the decision itself is already recorded
     def start(self):
         from slack_bolt import App
         from slack_bolt.adapter.socket_mode import SocketModeHandler
         app = App(token=self.bot_token); self.client = app.client
+        def click(body, decision):
+            rid = body["actions"][0]["value"]
+            if self.live(rid): self._on_button(body["user"]["id"], rid, decision)
+            else:   # stale message: retire its buttons instead of acting on it
+                c = body.get("container") or {}
+                try: self.client.chat_update(channel=c["channel_id"], ts=c["message_ts"], text="This approval request is no longer active.",
+                                             blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": ":no_entry_sign: This approval request is no longer active (expired, answered, or FURY restarted). Nothing was run."}}])
+                except Exception: pass
         @app.action("fury_approve")
-        def _a(ack, body): ack(); self._on_button(body["user"]["id"], body["actions"][0]["value"], "approve")
+        def _a(ack, body): ack(); click(body, "approve")
         @app.action("fury_reject")
-        def _r(ack, body): ack(); self._on_button(body["user"]["id"], body["actions"][0]["value"], "reject")
+        def _r(ack, body): ack(); click(body, "reject")
         @app.event("message")
         def _m(event): self._on_message(event)
-        threading.Thread(target=SocketModeHandler(app, self.app_token).start, daemon=True).start()
+        handler = SocketModeHandler(app, self.app_token)
+        def _run():
+            try: handler.start()
+            except ValueError: pass   # bolt tries to install a SIGINT handler, which Python only allows on the main thread; the connection is already up
+        threading.Thread(target=_run, daemon=True).start()
         time.sleep(2)

@@ -1,0 +1,22 @@
+# FURY behind Caddy (automatic TLS).  From the repo root:
+#   1. put your settings in .env (never committed; it is read at run time, not baked into the image)
+#   2. replace fury.example.com in deploy/Caddyfile and change 127.0.0.1:8080 to fury:8080
+#   3. docker compose -f deploy/docker-compose.yml up -d --build
+# NOTE: not yet run by the author (no Docker on the dev machine). FURY is only reachable through Caddy; its port is not published.
+services:
+  fury:
+    build: {context: .., dockerfile: deploy/Dockerfile}
+    env_file: ../.env
+    volumes: [fury-data:/data]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+  caddy:
+    image: caddy:2
+    ports: ["80:80", "443:443"]
+    volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro", "caddy-data:/data"]
+    depends_on: [fury]
+    restart: unless-stopped
+volumes: {fury-data: {}, caddy-data: {}}

@@ -56,6 +56,9 @@ def main():
     if os.getenv("FURY_DB"):   # opt-in durable state, e.g. FURY_DB=fury.db
         from fury.store import Store
         store = Store(os.environ["FURY_DB"])
+    if os.getenv("FURY_TRACE_DB"):   # opt-in durable traces, e.g. FURY_TRACE_DB=fury_traces.db
+        from fury import telemetry
+        print(f"Traces: reloaded {telemetry.persist(os.environ['FURY_TRACE_DB'], int(os.getenv('FURY_RETENTION_DAYS', '30')))} span(s) from {os.environ['FURY_TRACE_DB']}")
     bus, triage, env = system.build(snow=snow, chat=chat, approvers=approvers, store=store, **kw)
     ctx = Ctx(bus, triage, snow, chat, inst, fake_target, store=store)
     if diag:
@@ -63,6 +66,8 @@ def main():
         poller = AlarmPoller(diag.client("cloudwatch", region_name=region), inst, lambda a: ctx.submit("handle_alert", a, "cloudwatch", a["description"]),
                              interval=int(os.getenv("POLL_SECONDS", "30")))
         ctx.poller = poller; threading.Thread(target=poller.run_forever, daemon=True).start()
+    resumed = ctx.resume_interrupted() if store else []   # continue runs a restart interrupted, from their saved checkpoint
+    if resumed: print(f"Resuming {len(resumed)} interrupted run(s) from their checkpoints: {', '.join(resumed)}")
     from fury import auth as AUTH
     try: api_auth = AUTH.from_env(ctx.audit)
     except ValueError as e: sys.exit(str(e))

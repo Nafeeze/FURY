@@ -190,12 +190,29 @@ class Ctx:
         self.vectors = VEC.VectorIndex() if (LLM.enabled() and os.getenv("FURY_SEMANTIC", "off").lower() == "on") else None
         self.audit = audit or AUD.Audit(os.getenv("FURY_AUDIT_LOG") or None)
         if store:
-            store.recover_interrupted(); store.prune(int(os.getenv("FURY_RETENTION_DAYS", "90"))); self.runs.update(store.load_runs())
+            store.recover_interrupted(int(os.getenv("FURY_RESUME_WINDOW_SECONDS", "1800")), int(os.getenv("FURY_RESUME_MAX", "1")))
+            store.prune(int(os.getenv("FURY_RETENTION_DAYS", "90"))); self.runs.update(store.load_runs())
     def save(self, run):
         if self.store: self.store.save_run(run)
     def submit(self, skill, data, source, label, on_complete=None):
         rid = uuid.uuid4().hex[:8]
-        run = self.runs[rid] = {"id": rid, "label": label, "source": source, "state": "queued", "start": None, "end": None, "out": None, "at": time.strftime("%H:%M:%S")}
+        # "input" and "cp" (checkpoint) exist only while the run is active so a restart can resume it; they are dropped when it ends.
+        run = self.runs[rid] = {"id": rid, "label": label, "source": source, "state": "queued", "start": None, "end": None, "out": None, "at": time.strftime("%H:%M:%S"),
+                                "ts": time.time(), "resumes": 0, "input": {"skill": skill, "data": data, "source": source}, "cp": {}}
+        return self._start(run, skill, data, source, on_complete)
+    def resume_interrupted(self):
+        """Continue runs that a restart interrupted, from their saved checkpoint. Call once, after the integrations are up."""
+        ids = []
+        for run in [r for r in self.runs.values() if r.get("state") == "interrupted"]:
+            inp = run.get("input") or {}
+            run.update(resumes=int(run.get("resumes", 0)) + 1, state="queued", start=None, end=None)
+            data = dict(inp.get("data") or {}); data["_resume"] = run.get("cp") or {}
+            self.audit.record("system", "run.resume", "started", run=run["id"], ticket=(run.get("cp") or {}).get("ticket"), fix_already_run=bool((run.get("cp") or {}).get("acted")))
+            telemetry.counter("run.resumed")
+            self._start(run, inp.get("skill", "handle_alert"), data, inp.get("source", "cloudwatch"), None); ids.append(run["id"])
+        return ids
+    def _start(self, run, skill, data, source, on_complete):
+        rid, label = run["id"], run["label"]
         self.save(run)
         snap = telemetry.capture()   # the worker thread continues the caller's trace (chat request or alarm)
         def work():
@@ -203,10 +220,14 @@ class Ctx:
                 with telemetry.attach(snap), telemetry.span("run", run_id=rid, source=source, skill=skill, label=label) as sp:
                     run["trace_id"] = sp["trace_id"]
                     with self.lock:
+                        def checkpoint(**kw): run.setdefault("cp", {}).update(kw); self.save(run)
+                        self.triage.checkpoint = checkpoint
                         run.update(state="running", start=len(self.bus.trace)); self.save(run)
-                        t = self.bus.send(source, skill, data, to="triage")
+                        try: t = self.bus.send(source, skill, data, to="triage")
+                        finally: self.triage.checkpoint = lambda **kw: None
                         run.update(state="done" if t.state == "completed" else "error", end=len(self.bus.trace),
                                    out=t.output if t.state == "completed" else {"outcome": "error", "reason": t.error})
+                        run.pop("input", None); run.pop("cp", None)
                         o = (run["out"] or {}).get("outcome")
                         telemetry.set_attr(sp, "outcome", o); telemetry.set_attr(sp, "ticket", (run["out"] or {}).get("ticket"))
                         if run["state"] == "error": sp["ok"], sp["error"] = False, telemetry.redact(t.error, 120)
@@ -370,7 +391,7 @@ def create_app(ctx, demo=False, auth=None):
         """Everything the Observability tab draws, in one call so it never half-renders."""
         return jsonify(backend=telemetry.backend(), otel_endpoint=bool(os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")), llm_on=os.getenv("FURY_LLM", "off").lower() == "on",
                        kpis=telemetry.kpis(), signals=telemetry.signals(), traces=telemetry.traces(25), metrics=telemetry.summary(),
-                       retention="in memory, newest 2000 spans, cleared on restart", redaction=os.getenv("FURY_TELEMETRY_RAW", "off").lower() != "on")
+                       retention=telemetry.retention(),redaction=os.getenv("FURY_TELEMETRY_RAW", "off").lower() != "on")
     @app.get("/api/obs/session/<ref>")
     def obs_session(ref):
         """Everything one conversation did: its runs and the traces they produced (metadata only)."""

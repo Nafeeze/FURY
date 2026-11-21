@@ -24,7 +24,9 @@ Refuses to start with real integrations and no API token unless `FURY_AUTH=off` 
 | `FURY_SNOW` / `FURY_TARGET` / `FURY_CHAT` | `real` or `fake`, per integration |
 | `FURY_CHAT_MODE` | `readonly` (default: chat cannot open incidents) or `full` |
 | `FURY_API_TOKENS` | `name:role:sha256` entries; roles `viewer`, `operator`, `admin` |
-| `FURY_DB`, `FURY_AUDIT_LOG`, `FURY_RETENTION_DAYS` | Durable state, tamper-evident audit file, retention (default 90 days) |
+| `FURY_DB`, `FURY_TRACE_DB`, `FURY_AUDIT_LOG`, `FURY_RETENTION_DAYS` | Durable state (runs, approvals, attempts), durable traces, tamper-evident audit file, retention (default 90 days). **Set all three for a real deployment**: without `FURY_DB` nothing can resume after a restart |
+| `FURY_RESUME_WINDOW_SECONDS`, `FURY_RESUME_MAX` | Resume after a restart: a run interrupted less than this long ago (default 1800 s) continues from its checkpoint, at most `FURY_RESUME_MAX` (default 1) times; `0` disables resume |
+| `FURY_RATE_CHAT_PER_MIN`, `FURY_RATE_API_PER_MIN` | Per-user request limits (defaults 20 chat messages and 600 other requests a minute; `0` disables) |
 | `FURY_HOST`, `FURY_PORT` | Bind address (default `127.0.0.1:8080`) |
 | `FURY_SLO_ALERT_SECONDS` | SLO check interval (default 60; `0` disables alerts) |
 | `FURY_LLM=on`, `NVIDIA_API_KEY`, `NVIDIA_MODEL`, `NVIDIA_FALLBACK_MODELS`, `NVIDIA_EMBED_MODEL` | The chat model. FURY tries the primary then the fallbacks and skips a retired model for 10 minutes. **Hosted models are retired without notice** (the original default died on 2026-11-18): if `/api/obs/overview` shows many `llm.model.error` or the chat sounds canned, list current models at `<NVIDIA_BASE_URL>/models` and update `NVIDIA_MODEL`. FURY always falls back to fixed text, never to silence. |
@@ -51,9 +53,10 @@ Refuses to start with real integrations and no API token unless `FURY_AUTH=off` 
 | Incidents list empty or "ServiceNow is unavailable" | PDI hibernating/expired, wrong `SNOW_URL`, or password changed | Wake the instance at developer.servicenow.com, check the URL, run `python check_all.py --only snow` |
 | `/api/health` shows ServiceNow `open` | 5 consecutive failures tripped the circuit breaker | Fix the cause; it retries after a 30 s cool-down. Writes are never retried, so nothing is duplicated. |
 | Tickets skipped as "duplicate" | An unresolved incident with the same alarm and instance is open | Resolve or close it; Resolved/Closed/Canceled never count as open |
-| Approval request seen in Slack but nothing happens after a restart | Pending approvals do not survive a restart; they expire and the incident is escalated | Re-raise the incident |
+| FURY restarted while an incident was in progress | With `FURY_DB` set, the run resumes from its checkpoint (ticket reused, nothing repeated); the work notes say "resuming". A new approval request is posted because the old one died with the process | Approve the new request. If the fix was in flight when FURY died, FURY will NOT repeat it: it escalates, and a human checks the server |
+| An old Slack approval message still shows buttons | It was posted before a restart | Clicking it does nothing and retires the buttons; use the newer request |
 | 401 from the UI | Token missing or wrong | Enter a valid token in the sign-in box |
-| 429 | Auth throttle | Wait about a minute |
+| 429 | Failed-login throttle, or the per-user rate limit | Wait about a minute (limits are in the audit log as `rate limit`) |
 | Cannot read work notes in the UI | Integration user lacks read access to the journal table | Run `servicenow_setup/fury_snow_acl.js` once as admin (creates one narrow read ACL: incident work notes only) |
 | Chat answers are generic or canned | Model retired or API key invalid; FURY fell back to fixed text | See the `FURY_LLM` row above; check `GET /api/obs/overview` for `llm.model.error` |
 | "How do I ..." gets no knowledge-base answer | No published KB articles, or ingestion cannot read them | `GET /api/kb` shows count and last error; seed samples with `servicenow_setup/fury_snow_kb_seed.js`; `POST /api/kb/refresh` (admin) forces a refresh |

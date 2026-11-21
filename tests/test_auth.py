@@ -103,6 +103,20 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual(c.get("/api/runs", headers=bearer("admin")).status_code, 429, "even a valid token is refused while throttled")
         t[0] = 61.0; self.assertEqual(c.get("/api/runs", headers=bearer("admin")).status_code, 200)
 
+    def test_chat_is_rate_limited_per_identity_then_recovers(self):
+        t = [0.0]; ctx, c = make(clock=lambda: t[0], chat_per_min=3, api_per_min=0)
+        post = lambda role: c.post("/api/chat", json={"message": "hello"}, headers=bearer(role))
+        self.assertEqual([post("operator").status_code for _ in range(3)], [200, 200, 200])
+        self.assertEqual(post("operator").status_code, 429)
+        self.assertEqual(post("admin").status_code, 200, "the limit is per identity, not global")
+        self.assertIn(("operator-user", "api.access", "denied"), {(e["actor"], e["action"], e["outcome"]) for e in ctx.audit.recent()})
+        t[0] = 61.0; self.assertEqual(post("operator").status_code, 200)
+
+    def test_general_api_limit_does_not_touch_the_chat_bucket(self):
+        _, c = make(chat_per_min=5, api_per_min=2)
+        self.assertEqual([c.get("/api/runs", headers=bearer("viewer")).status_code for _ in range(3)], [200, 200, 429])
+        self.assertEqual(c.post("/api/chat", json={"message": "hello"}, headers=bearer("operator")).status_code, 200)
+
     def test_auth_disabled_leaves_api_open(self):
         t, s, ch = FakeTarget(), FakeSnow(), FakeChat(); bus, tr, _ = system.build(target=t, snow=s, chat=ch)
         self.assertEqual(create_app(Ctx(bus, tr, s, ch, "i-1", t), demo=True).test_client().get("/api/runs").status_code, 200)

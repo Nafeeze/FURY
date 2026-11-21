@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, at TEXT, state TEXT, data 
 CREATE TABLE IF NOT EXISTS approvals (id INTEGER PRIMARY KEY AUTOINCREMENT, ticket TEXT, action TEXT, target TEXT, tier TEXT, status TEXT NOT NULL,
   approver TEXT, detail TEXT, requested_at TEXT DEFAULT (datetime('now')), decided_at TEXT, finished_at TEXT);
 CREATE TABLE IF NOT EXISTS attempts (ticket TEXT, action TEXT, n INTEGER NOT NULL, PRIMARY KEY (ticket, action));
+CREATE TABLE IF NOT EXISTS inflight (ticket TEXT, action TEXT, at TEXT DEFAULT (datetime('now')), PRIMARY KEY (ticket, action));
 """
 
 class Store:
@@ -36,12 +37,20 @@ class Store:
             r = json.loads(d); r.setdefault("start", None); r.setdefault("end", None); runs[r["id"]] = r
         return runs
 
-    def recover_interrupted(self):
-        """Runs that were queued/running when the process died can never finish: mark them failed, visibly."""
+    def recover_interrupted(self, resume_window=0, max_resumes=1):
+        """Runs that were queued/running when the process died. By default they are marked failed, visibly.
+        With resume_window > 0 (seconds), a run that is recent enough, still holds its saved input and has not already been
+        resumed max_resumes times is marked 'interrupted' instead, for Ctx.resume_interrupted() to continue from its checkpoint.
+        Returns how many runs were failed (not resumable)."""
+        import time
         n = 0
         for r in self.load_runs(1000).values():
             if r.get("state") in ("queued", "running"):
-                r.update(state="error", out={"outcome": "error", "reason": "interrupted by restart"}); self.save_run(r); n += 1
+                resumable = (resume_window > 0 and isinstance(r.get("input"), dict) and time.time() - float(r.get("ts") or 0) <= resume_window
+                             and int(r.get("resumes", 0)) < max_resumes)
+                if resumable: r.update(state="interrupted")
+                else: r.pop("input", None); r.update(state="error", out={"outcome": "error", "reason": "interrupted by restart"}); n += 1
+                self.save_run(r)
         # An approval that was still waiting when the process died can never be honoured: the signed token only
         # exists in memory and the waiting workflow is gone. Close it so nobody believes it is still pending.
         with self._lock:
@@ -59,6 +68,19 @@ class Store:
         with self._lock:
             self._db.execute("INSERT INTO attempts (ticket, action, n) VALUES (?,?,1) ON CONFLICT(ticket, action) DO UPDATE SET n=n+1", (ticket, action))
             self._db.commit()
+
+    # ---- in-flight marker: set just before an action is sent to the server, cleared once its outcome is known ----
+    def mark_inflight(self, ticket, action):
+        with self._lock:
+            self._db.execute("INSERT OR REPLACE INTO inflight (ticket, action) VALUES (?,?)", (ticket, action)); self._db.commit()
+
+    def clear_inflight(self, ticket, action):
+        with self._lock:
+            self._db.execute("DELETE FROM inflight WHERE ticket=? AND action=?", (ticket, action)); self._db.commit()
+
+    def inflight(self, ticket, action):
+        with self._lock:
+            return self._db.execute("SELECT 1 FROM inflight WHERE ticket=? AND action=?", (ticket, action)).fetchone() is not None
 
     # ---- approval / execution audit trail: requested -> approved|rejected|expired|denied -> executed|failed ----
     def approval_open(self, ticket, action, target, tier):

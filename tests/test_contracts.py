@@ -52,3 +52,27 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(r.state, "failed"); self.assertIn("read-only", r.error)
 
 if __name__ == "__main__": unittest.main()
+
+
+class OutputContractTests(unittest.TestCase):
+    def test_valid_outputs_pass(self):
+        ok = {"open_incident": {"number": "INC1", "duplicate": False}, "match_runbook": {"runbook": None, "score": 0.0},
+              "handle_alert": {"outcome": "resolved", "reason": "x", "ticket": "INC1"}, "add_note": {},
+              "remediate": {"result": {"state": "running"}, "approver": "U1", "approved_at": "t"},
+              "run_checks": {"evidence": [{"tool": "check_disk", "params": {}, "result": {}, "evidence_id": "E1", "observed_at": "t"}]}}
+        for skill, out in ok.items(): self.assertIsNone(contracts.validate_output(skill, out), skill)
+
+    def test_wrong_shapes_are_named(self):
+        self.assertIn("missing required field 'number'", contracts.validate_output("open_incident", {"duplicate": False}))
+        self.assertIn("'duplicate' must be bool", contracts.validate_output("open_incident", {"number": "INC1", "duplicate": "no"}))
+        self.assertIn("'score' must be", contracts.validate_output("match_runbook", {"runbook": None, "score": True}))
+        self.assertIn("must be an object", contracts.validate_output("add_note", ["x"]))
+        self.assertIn("evidence[0] is missing 'evidence_id'", contracts.validate_output("run_checks", {"evidence": [{"tool": "t", "params": {}, "result": {}, "observed_at": "t"}]}))
+        self.assertIsNone(contracts.validate_output("some_unknown_skill", "anything"))
+
+    def test_bus_fails_a_hop_whose_agent_returns_a_malformed_output(self):
+        bus, _, env = system.build()
+        bus.agents["itsm"].skills["open_incident"] = lambda task: {"number": 42}          # a buggy or hostile agent
+        t = bus.send("test", "open_incident", {"key": "k", "short_description": "s", "description": "d"})
+        self.assertEqual(t.state, "failed"); self.assertIn("invalid output from open_incident", t.error)
+        self.assertEqual(env["snow"].incidents, {})

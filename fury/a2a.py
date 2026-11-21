@@ -137,6 +137,11 @@ class Bus:
                 telemetry.set_attr(sp, "budget_exceeded", why); telemetry.counter("budget.exceeded", agent=name, skill=skill)
             else:
                 self.agents[name].run(task)
+                if task.state == "completed":   # output contract: the shape the next step depends on
+                    bad_out = contracts.validate_output(skill, task.output)
+                    if bad_out:
+                        task.state, task.error = "failed", f"invalid output from {skill}: {bad_out}"
+                        telemetry.set_attr(sp, "contract_violation", bad_out); telemetry.counter("contract.violation", skill=skill, direction="output")
             # Agent.run swallows exceptions into task.state, so record the real outcome here
             telemetry.set_attr(sp, "state", task.state)
             if task.state == "failed":

@@ -11,3 +11,10 @@ __pycache__/
 *.db
 
 .vscode/
+# runtime state (never commit)
+*.db
+*.db-journal
+fury_audit.log
+backups/
+fury_vectors.json
+fury_traces.db
